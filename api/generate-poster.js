@@ -49,6 +49,7 @@ export default async function handler(req, res) {
     // Add photo if provided
     if (photo1 || photo2) {
       payload.image_url = photo1 || photo2;
+      console.log('Using photo reference');
     }
 
     // Call Fal.ai
@@ -61,6 +62,8 @@ export default async function handler(req, res) {
       body: JSON.stringify(payload)
     });
 
+    console.log('Fal.ai response status:', response.status);
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Fal.ai error:', response.status, errorText);
@@ -68,11 +71,20 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    console.log('Job submitted, request ID:', data.request_id);
+    console.log('Full Fal.ai response:', JSON.stringify(data));
+    
+    // Handle different response structures
+    const requestId = data.request_id || data.id || data.inference_id;
+    console.log('Extracted request ID:', requestId);
+
+    if (!requestId) {
+      console.error('No request ID found in response');
+      throw new Error('No request ID returned from Fal.ai');
+    }
 
     return res.status(200).json({
       success: true,
-      requestId: data.request_id,
+      requestId: requestId,
       message: 'Generation started'
     });
 

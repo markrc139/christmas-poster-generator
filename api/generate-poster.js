@@ -45,8 +45,8 @@ export default async function handler(req, res) {
     console.log('Starting image generation with Flux Kontext Pro...');
     console.log('Number of reference images:', images.length);
 
-    // Queue the job (don't wait for it to complete)
-    const { request_id } = await fal.queue.submit("fal-ai/flux-kontext-pro", {
+    // Submit to the queue - this should return quickly with a request_id
+    const handle = await fal.queue.submit("fal-ai/flux-kontext-pro", {
       input: {
         prompt: prompt,
         images: images,
@@ -62,17 +62,19 @@ export default async function handler(req, res) {
       }
     });
 
-    console.log('Job queued with request_id:', request_id);
+    console.log('Job submitted successfully');
+    console.log('Request ID:', handle.request_id);
 
-    // Return the request_id immediately so the frontend can poll for results
+    // Return the request_id immediately
     return res.status(200).json({
       success: true,
-      requestId: request_id,
+      requestId: handle.request_id,
       message: 'Generation started'
     });
 
   } catch (error) {
     console.error('Error starting generation:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
     return res.status(500).json({ 
       error: 'Failed to start poster generation',
       details: error.message 

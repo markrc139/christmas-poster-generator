@@ -29,77 +29,83 @@ export default async function handler(req, res) {
 
     console.log('Checking status for request:', requestId);
 
-    // Check status using REST API
-    const statusResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}/status`, {
+    // Try to get the result directly - Fal.ai queue returns status in the result
+    const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`, {
       method: 'GET',
       headers: {
-        'Authorization': `Key ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Authorization': `Key ${apiKey}`
       }
     });
 
-    if (!statusResponse.ok) {
-      const errorText = await statusResponse.text();
-      console.error('Status check error:', errorText);
-      throw new Error(`Status check failed: ${statusResponse.status}`);
-    }
+    console.log('Result response status:', resultResponse.status);
 
-    const statusData = await statusResponse.json();
-    console.log('Current status:', statusData.status);
-
-    // Handle different status states
-    if (statusData.status === 'IN_PROGRESS' || statusData.status === 'IN_QUEUE') {
+    if (resultResponse.status === 404) {
+      // Request not found or still queued
       return res.status(200).json({
         status: 'processing',
         message: 'Still generating...'
       });
     }
 
-    if (statusData.status === 'COMPLETED') {
-      // Get the result
-      const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Key ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!resultResponse.ok) {
-        throw new Error('Failed to get result');
+    if (!resultResponse.ok) {
+      const errorText = await resultResponse.text();
+      console.error('Result check error:', errorText);
+      
+      // If it's a 405, the request might still be processing
+      if (resultResponse.status === 405) {
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Still generating...'
+        });
       }
+      
+      throw new Error(`Result check failed: ${resultResponse.status}`);
+    }
 
-      const result = await resultResponse.json();
+    const result = await resultResponse.json();
+    console.log('Result received:', JSON.stringify(result).substring(0, 200));
+
+    // Check if it has the completed data
+    if (result.images && result.images.length > 0) {
       console.log('Generation complete!');
-
       return res.status(200).json({
         status: 'completed',
         imageUrl: result.images[0].url
       });
     }
 
-    if (statusData.status === 'FAILED') {
+    // Check status field if present
+    if (result.status === 'IN_PROGRESS' || result.status === 'IN_QUEUE') {
+      return res.status(200).json({
+        status: 'processing',
+        message: 'Still generating...'
+      });
+    }
+
+    if (result.status === 'FAILED') {
       console.error('Generation failed');
       return res.status(500).json({
         status: 'failed',
         error: 'Generation failed',
-        details: statusData.error || 'Unknown error'
+        details: result.error || 'Unknown error'
       });
     }
 
-    // Unknown status
+    // Unknown response
+    console.log('Unknown result structure:', result);
     return res.status(200).json({
-      status: 'unknown',
-      message: 'Unknown status',
-      rawStatus: statusData.status
+      status: 'processing',
+      message: 'Still processing...'
     });
 
   } catch (error) {
     console.error('Error checking status:', error);
     console.error('Error message:', error.message);
-    return res.status(500).json({ 
-      error: 'Failed to check status',
-      details: error.message 
+    
+    // Don't fail completely, just report as still processing
+    return res.status(200).json({
+      status: 'processing',
+      message: 'Checking status...'
     });
   }
 }

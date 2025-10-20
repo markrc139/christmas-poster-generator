@@ -1,13 +1,10 @@
 export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
@@ -15,36 +12,30 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { requestId } = req.body;
+    const requestId = req.body.requestId;
 
     if (!requestId) {
       return res.status(400).json({ error: 'Missing requestId' });
     }
 
     const apiKey = process.env.FAL_KEY;
-    
-    if (!apiKey) {
-      throw new Error('FAL_KEY not configured');
-    }
 
-    console.log('Checking status for request:', requestId);
+    console.log('Checking status for:', requestId);
 
-    // Try to get the result directly
-    const resultUrl = `https://fal.run/fal-ai/flux-pro/requests/${requestId}`;
+    const resultUrl = `https://queue.fal.run/fal-ai/flux-pro/requests/${requestId}`;
     console.log('Getting result from:', resultUrl);
     
     const resultResponse = await fetch(resultUrl, {
       method: 'GET',
       headers: {
-        'Authorization': `Key ${apiKey}`,
-        'Accept': 'application/json'
+        'Authorization': 'Key ' + apiKey
       }
     });
 
-    console.log('Result response status:', resultResponse.status);
+    console.log('Status check response:', resultResponse.status);
 
     if (resultResponse.status === 404) {
-      console.log('404 - Request not found, might still be queued');
+      console.log('404 - Still queued');
       return res.status(200).json({
         status: 'processing',
         message: 'Still generating...'
@@ -52,7 +43,7 @@ export default async function handler(req, res) {
     }
 
     if (resultResponse.status === 405) {
-      // Method not allowed - still processing
+      console.log('405 - Still processing');
       return res.status(200).json({
         status: 'processing',
         message: 'Processing...'
@@ -61,9 +52,7 @@ export default async function handler(req, res) {
 
     if (!resultResponse.ok) {
       const errorText = await resultResponse.text();
-      console.error('Result check error:', resultResponse.status, errorText);
-      
-      // Continue polling on errors
+      console.error('Check error:', errorText);
       return res.status(200).json({
         status: 'processing',
         message: 'Checking...'
@@ -73,26 +62,24 @@ export default async function handler(req, res) {
     const result = await resultResponse.json();
     console.log('Result received:', JSON.stringify(result).substring(0, 300));
 
-    // Check if it has the completed data
     if (result.images && result.images.length > 0) {
-      console.log('Generation complete!');
+      console.log('Complete!');
       return res.status(200).json({
         status: 'completed',
         imageUrl: result.images[0].url
       });
     }
 
-    // Check if result has data in different structure
     if (result.data && result.data.images && result.data.images.length > 0) {
-      console.log('Generation complete (nested data)!');
+      console.log('Complete (nested)!');
       return res.status(200).json({
         status: 'completed',
         imageUrl: result.data.images[0].url
       });
     }
 
-    // Check status field if present
     const status = result.status || result.state;
+    
     if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING') {
       return res.status(200).json({
         status: 'processing',
@@ -104,26 +91,21 @@ export default async function handler(req, res) {
       console.error('Generation failed');
       return res.status(500).json({
         status: 'failed',
-        error: 'Generation failed',
-        details: result.error || 'Unknown error'
+        error: 'Generation failed'
       });
     }
 
-    // Unknown response, keep polling
-    console.log('Unknown result structure, continuing to poll');
+    console.log('Unknown status, continuing');
     return res.status(200).json({
       status: 'processing',
       message: 'Processing...'
     });
 
   } catch (error) {
-    console.error('Error in check-status:', error);
-    console.error('Error message:', error.message);
-    
-    // Don't fail, just keep polling
+    console.error('Check error:', error.message);
     return res.status(200).json({
       status: 'processing',
-      message: 'Checking status...'
+      message: 'Checking...'
     });
   }
 }

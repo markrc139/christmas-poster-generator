@@ -1,6 +1,7 @@
 {
   "name": "christmas-poster-generator",
   "version": "1.0.0",
+  "type": "module",
   "description": "Christmas movie poster generator with AI",
   "main": "index.js",
   "scripts": {
@@ -12,8 +13,5 @@
     "poster"
   ],
   "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@fal-ai/serverless-client": "^0.14.2"
-  }
+  "license": "MIT"
 }

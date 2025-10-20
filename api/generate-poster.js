@@ -14,45 +14,29 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  console.log('=== GENERATE POSTER FUNCTION STARTED ===');
+  console.log('Generate poster function started');
 
   try {
-    console.log('Parsing request body...');
     const { movieTitle, christmasDrink, treeDecorations, christmasDinner, photo1, photo2 } = req.body;
-
-    console.log('Received data:', {
-      movieTitle: movieTitle ? 'yes' : 'no',
-      christmasDrink: christmasDrink ? 'yes' : 'no',
-      treeDecorations: treeDecorations ? 'no',
-      christmasDinner: christmasDinner ? 'yes' : 'no',
-      photo1: photo1 ? `${photo1.length} chars` : 'no',
-      photo2: photo2 ? `${photo2.length} chars` : 'no'
-    });
 
     // Validate required fields
     if (!movieTitle || !christmasDrink || !treeDecorations || !christmasDinner) {
-      console.error('Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Build the prompt for the movie poster
+    // Build the prompt
     const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. The scene shows a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;
 
-    console.log('Starting image generation with Flux Pro...');
-    console.log('Has photos:', photo1 || photo2 ? 'yes' : 'no');
+    console.log('Calling Fal.ai API');
 
-    // Call Fal.ai REST API directly
     const apiKey = process.env.FAL_KEY;
     
     if (!apiKey) {
-      console.error('FAL_KEY not configured');
       throw new Error('FAL_KEY not configured');
     }
 
-    console.log('API key found, making request to Fal.ai...');
-
-    // Build the payload - use image_url if photo provided
-    const falPayload = {
+    // Build payload
+    const payload = {
       prompt: prompt,
       num_inference_steps: 28,
       guidance_scale: 3.5,
@@ -62,37 +46,30 @@ export default async function handler(req, res) {
       aspect_ratio: "2:3"
     };
 
-    // Add image reference if provided
+    // Add photo if provided
     if (photo1 || photo2) {
-      falPayload.image_url = photo1 || photo2;
-      console.log('Using photo as reference');
+      payload.image_url = photo1 || photo2;
     }
 
-    console.log('Calling Fal.ai API...');
-    console.log('Payload keys:', Object.keys(falPayload));
-    
+    // Call Fal.ai
     const response = await fetch('https://fal.run/fal-ai/flux-pro', {
       method: 'POST',
       headers: {
         'Authorization': `Key ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(falPayload)
+      body: JSON.stringify(payload)
     });
-
-    console.log('Fal.ai response status:', response.status);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Fal.ai API error response:', errorText);
-      throw new Error(`Fal.ai API error: ${response.status} - ${errorText}`);
+      console.error('Fal.ai error:', response.status, errorText);
+      throw new Error(`Fal.ai API error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('Job submitted successfully');
-    console.log('Request ID:', data.request_id);
+    console.log('Job submitted, request ID:', data.request_id);
 
-    // Return the request_id immediately
     return res.status(200).json({
       success: true,
       requestId: data.request_id,
@@ -100,15 +77,10 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('=== ERROR IN GENERATE POSTER ===');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    
+    console.error('Error:', error.message);
     return res.status(500).json({ 
       error: 'Failed to start poster generation',
-      details: error.message,
-      type: error.name
+      details: error.message
     });
   }
 }

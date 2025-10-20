@@ -52,6 +52,16 @@ export default async function handler(req, res) {
 
     if (!resultResponse.ok) {
       const errorText = await resultResponse.text();
+      
+      // Check if it's just "still in progress"
+      if (errorText.includes('still in progress')) {
+        console.log('Still in progress');
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Still generating...'
+        });
+      }
+      
       console.error('Check error:', errorText);
       return res.status(200).json({
         status: 'processing',

@@ -1,5 +1,3 @@
-import * as fal from "@fal-ai/serverless-client";
-
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -29,15 +27,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'At least one photo is required' });
     }
 
-    // Configure Fal.ai with API key from environment variable
-    fal.config({
-      credentials: process.env.FAL_KEY
-    });
-
     // Build the prompt for the movie poster
     const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. The scene shows a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;
 
-    // Prepare images array - only include uploaded photos
+    // Prepare images array
     const images = [];
     if (photo1) images.push(photo1);
     if (photo2) images.push(photo2);
@@ -45,9 +38,20 @@ export default async function handler(req, res) {
     console.log('Starting image generation with Flux Kontext Pro...');
     console.log('Number of reference images:', images.length);
 
-    // Submit to the queue - this should return quickly with a request_id
-    const handle = await fal.queue.submit("fal-ai/flux-kontext-pro", {
-      input: {
+    // Call Fal.ai REST API directly
+    const apiKey = process.env.FAL_KEY;
+    
+    if (!apiKey) {
+      throw new Error('FAL_KEY not configured');
+    }
+
+    const response = await fetch('https://queue.fal.run/fal-ai/flux-kontext-pro', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Key ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         prompt: prompt,
         images: images,
         num_inference_steps: 28,
@@ -59,22 +63,30 @@ export default async function handler(req, res) {
           width: 768,
           height: 1024
         }
-      }
+      })
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Fal.ai API error:', errorText);
+      throw new Error(`Fal.ai API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
     console.log('Job submitted successfully');
-    console.log('Request ID:', handle.request_id);
+    console.log('Request ID:', data.request_id);
 
     // Return the request_id immediately
     return res.status(200).json({
       success: true,
-      requestId: handle.request_id,
+      requestId: data.request_id,
       message: 'Generation started'
     });
 
   } catch (error) {
     console.error('Error starting generation:', error);
-    console.error('Error details:', JSON.stringify(error, null, 2));
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({ 
       error: 'Failed to start poster generation',
       details: error.message 

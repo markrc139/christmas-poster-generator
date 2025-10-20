@@ -36,10 +36,10 @@ export default async function handler(req, res) {
     }
 
     // Check if at least one photo is provided
-    if (!photo1 && !photo2) {
-      console.error('No photos provided');
-      return res.status(400).json({ error: 'At least one photo is required' });
-    }
+ //   if (!photo1 && !photo2) {
+ //     console.error('No photos provided');
+ //     return res.status(400).json({ error: 'At least one photo is required' });
+ //   }
 
     // Build the prompt for the movie poster
     const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. The scene shows a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;

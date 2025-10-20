@@ -1,0 +1,19 @@
+{
+  "name": "christmas-poster-generator",
+  "version": "1.0.0",
+  "description": "Christmas movie poster generator with AI",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "christmas",
+    "ai",
+    "poster"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fal-ai/serverless-client": "^0.14.2"
+  }
+}

@@ -79,7 +79,7 @@ export default async function handler(req, res) {
 
     console.log('Calling Fal.ai API...');
     
-    const response = await fetch('https://queue.fal.run/fal-ai/flux-kontext-pro', {
+    const response = await fetch('https://queue.fal.run/fal-ai/flux/kontext-pro', {
       method: 'POST',
       headers: {
         'Authorization': `Key ${apiKey}`,

@@ -29,11 +29,11 @@ export default async function handler(req, res) {
 
     console.log('Checking status for request:', requestId);
 
-    // Try the status endpoint with different URL structure
-    const statusUrl = `https://fal.run/fal-ai/flux/kontext-pro/requests/${requestId}/status`;
-    console.log('Trying status URL:', statusUrl);
+    // Try to get the result directly
+    const resultUrl = `https://fal.run/fal-ai/flux-pro/requests/${requestId}`;
+    console.log('Getting result from:', resultUrl);
     
-    const statusResponse = await fetch(statusUrl, {
+    const resultResponse = await fetch(resultUrl, {
       method: 'GET',
       headers: {
         'Authorization': `Key ${apiKey}`,
@@ -41,9 +41,9 @@ export default async function handler(req, res) {
       }
     });
 
-    console.log('Status response code:', statusResponse.status);
+    console.log('Result response status:', resultResponse.status);
 
-    if (statusResponse.status === 404) {
+    if (resultResponse.status === 404) {
       console.log('404 - Request not found, might still be queued');
       return res.status(200).json({
         status: 'processing',
@@ -51,9 +51,17 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!statusResponse.ok) {
-      const errorText = await statusResponse.text();
-      console.error('Status check error:', statusResponse.status, errorText);
+    if (resultResponse.status === 405) {
+      // Method not allowed - still processing
+      return res.status(200).json({
+        status: 'processing',
+        message: 'Processing...'
+      });
+    }
+
+    if (!resultResponse.ok) {
+      const errorText = await resultResponse.text();
+      console.error('Result check error:', resultResponse.status, errorText);
       
       // Continue polling on errors
       return res.status(200).json({
@@ -62,13 +70,29 @@ export default async function handler(req, res) {
       });
     }
 
-    const statusData = await statusResponse.json();
-    console.log('Status data:', JSON.stringify(statusData).substring(0, 300));
+    const result = await resultResponse.json();
+    console.log('Result received:', JSON.stringify(result).substring(0, 300));
 
-    // Check various possible status fields
-    const status = statusData.status || statusData.state;
-    console.log('Current status:', status);
+    // Check if it has the completed data
+    if (result.images && result.images.length > 0) {
+      console.log('Generation complete!');
+      return res.status(200).json({
+        status: 'completed',
+        imageUrl: result.images[0].url
+      });
+    }
 
+    // Check if result has data in different structure
+    if (result.data && result.data.images && result.data.images.length > 0) {
+      console.log('Generation complete (nested data)!');
+      return res.status(200).json({
+        status: 'completed',
+        imageUrl: result.data.images[0].url
+      });
+    }
+
+    // Check status field if present
+    const status = result.status || result.state;
     if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING') {
       return res.status(200).json({
         status: 'processing',
@@ -76,57 +100,17 @@ export default async function handler(req, res) {
       });
     }
 
-    if (status === 'COMPLETED' || status === 'SUCCESS') {
-      // Try to get the result
-      const resultUrl = `https://fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`;
-      console.log('Getting result from:', resultUrl);
-      
-      const resultResponse = await fetch(resultUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Key ${apiKey}`,
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!resultResponse.ok) {
-        console.error('Failed to get result:', resultResponse.status);
-        throw new Error('Failed to retrieve result');
-      }
-
-      const result = await resultResponse.json();
-      console.log('Result received');
-
-      if (result.images && result.images.length > 0) {
-        return res.status(200).json({
-          status: 'completed',
-          imageUrl: result.images[0].url
-        });
-      }
-
-      // Check if result has data in different structure
-      if (result.data && result.data.images && result.data.images.length > 0) {
-        return res.status(200).json({
-          status: 'completed',
-          imageUrl: result.data.images[0].url
-        });
-      }
-
-      console.error('Result structure unexpected:', result);
-      throw new Error('Unexpected result structure');
-    }
-
     if (status === 'FAILED' || status === 'ERROR') {
       console.error('Generation failed');
       return res.status(500).json({
         status: 'failed',
         error: 'Generation failed',
-        details: statusData.error || 'Unknown error'
+        details: result.error || 'Unknown error'
       });
     }
 
-    // Unknown status, keep polling
-    console.log('Unknown status, continuing to poll');
+    // Unknown response, keep polling
+    console.log('Unknown result structure, continuing to poll');
     return res.status(200).json({
       status: 'processing',
       message: 'Processing...'

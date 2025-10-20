@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     console.log('Received data:', {
       movieTitle: movieTitle ? 'yes' : 'no',
       christmasDrink: christmasDrink ? 'yes' : 'no',
-      treeDecorations: treeDecorations ? 'yes' : 'no',
+      treeDecorations: treeDecorations ? 'no',
       christmasDinner: christmasDinner ? 'yes' : 'no',
       photo1: photo1 ? `${photo1.length} chars` : 'no',
       photo2: photo2 ? `${photo2.length} chars` : 'no'
@@ -35,23 +35,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Check if at least one photo is provided
- //   if (!photo1 && !photo2) {
- //     console.error('No photos provided');
- //     return res.status(400).json({ error: 'At least one photo is required' });
- //   }
-
     // Build the prompt for the movie poster
     const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. The scene shows a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;
 
-    // Prepare images array
-    const images = [];
-    if (photo1) images.push(photo1);
-    if (photo2) images.push(photo2);
-
-    console.log('Starting image generation with Flux Kontext Pro...');
-    console.log('Number of reference images:', images.length);
-    console.log('Total payload size estimate:', JSON.stringify({ prompt, images }).length, 'bytes');
+    console.log('Starting image generation with Flux Pro...');
+    console.log('Has photos:', photo1 || photo2 ? 'yes' : 'no');
 
     // Call Fal.ai REST API directly
     const apiKey = process.env.FAL_KEY;
@@ -63,23 +51,27 @@ export default async function handler(req, res) {
 
     console.log('API key found, making request to Fal.ai...');
 
+    // Build the payload - use image_url if photo provided
     const falPayload = {
       prompt: prompt,
-      images: images,
       num_inference_steps: 28,
       guidance_scale: 3.5,
       num_images: 1,
       enable_safety_checker: true,
       output_format: "png",
-      image_size: {
-        width: 768,
-        height: 1024
-      }
+      aspect_ratio: "2:3"
     };
 
+    // Add image reference if provided
+    if (photo1 || photo2) {
+      falPayload.image_url = photo1 || photo2;
+      console.log('Using photo as reference');
+    }
+
     console.log('Calling Fal.ai API...');
+    console.log('Payload keys:', Object.keys(falPayload));
     
-    const response = await fetch('https://fal.run/fal-ai/flux/kontext-pro', {
+    const response = await fetch('https://fal.run/fal-ai/flux-pro', {
       method: 'POST',
       headers: {
         'Authorization': `Key ${apiKey}`,

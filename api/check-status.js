@@ -1,5 +1,3 @@
-import * as fal from "@fal-ai/serverless-client";
-
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -23,37 +21,56 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing requestId' });
     }
 
-    // Configure Fal.ai with API key
-    fal.config({
-      credentials: process.env.FAL_KEY
-    });
+    const apiKey = process.env.FAL_KEY;
+    
+    if (!apiKey) {
+      throw new Error('FAL_KEY not configured');
+    }
 
     console.log('Checking status for request:', requestId);
 
-    // Check the status using the correct method
-    const status = await fal.queue.status("fal-ai/flux-kontext-pro", {
-      requestId: requestId,
-      logs: true
+    // Check status using REST API
+    const statusResponse = await fetch(`https://queue.fal.run/fal-ai/flux-kontext-pro/requests/${requestId}/status`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Key ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
     });
 
-    console.log('Current status:', status.status);
+    if (!statusResponse.ok) {
+      const errorText = await statusResponse.text();
+      console.error('Status check error:', errorText);
+      throw new Error(`Status check failed: ${statusResponse.status}`);
+    }
+
+    const statusData = await statusResponse.json();
+    console.log('Current status:', statusData.status);
 
     // Handle different status states
-    if (status.status === 'IN_PROGRESS' || status.status === 'IN_QUEUE') {
+    if (statusData.status === 'IN_PROGRESS' || statusData.status === 'IN_QUEUE') {
       return res.status(200).json({
         status: 'processing',
         message: 'Still generating...'
       });
     }
 
-    if (status.status === 'COMPLETED') {
+    if (statusData.status === 'COMPLETED') {
       // Get the result
-      const result = await fal.queue.result("fal-ai/flux-kontext-pro", {
-        requestId: requestId
+      const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux-kontext-pro/requests/${requestId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Key ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
       });
 
+      if (!resultResponse.ok) {
+        throw new Error('Failed to get result');
+      }
+
+      const result = await resultResponse.json();
       console.log('Generation complete!');
-      console.log('Result:', result);
 
       return res.status(200).json({
         status: 'completed',
@@ -61,27 +78,25 @@ export default async function handler(req, res) {
       });
     }
 
-    if (status.status === 'FAILED') {
+    if (statusData.status === 'FAILED') {
       console.error('Generation failed');
-      console.error('Error:', status.error);
       return res.status(500).json({
         status: 'failed',
         error: 'Generation failed',
-        details: status.error || 'Unknown error'
+        details: statusData.error || 'Unknown error'
       });
     }
 
     // Unknown status
-    console.log('Unknown status:', status);
     return res.status(200).json({
       status: 'unknown',
       message: 'Unknown status',
-      rawStatus: status.status
+      rawStatus: statusData.status
     });
 
   } catch (error) {
     console.error('Error checking status:', error);
-    console.error('Error details:', JSON.stringify(error, null, 2));
+    console.error('Error message:', error.message);
     return res.status(500).json({ 
       error: 'Failed to check status',
       details: error.message 

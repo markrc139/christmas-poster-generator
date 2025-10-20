@@ -29,80 +29,114 @@ export default async function handler(req, res) {
 
     console.log('Checking status for request:', requestId);
 
-    // Try to get the result directly - Fal.ai queue returns status in the result
-    const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`, {
+    // Try the status endpoint with different URL structure
+    const statusUrl = `https://fal.run/fal-ai/flux/kontext-pro/requests/${requestId}/status`;
+    console.log('Trying status URL:', statusUrl);
+    
+    const statusResponse = await fetch(statusUrl, {
       method: 'GET',
       headers: {
-        'Authorization': `Key ${apiKey}`
+        'Authorization': `Key ${apiKey}`,
+        'Accept': 'application/json'
       }
     });
 
-    console.log('Result response status:', resultResponse.status);
+    console.log('Status response code:', statusResponse.status);
 
-    if (resultResponse.status === 404) {
-      // Request not found or still queued
+    if (statusResponse.status === 404) {
+      console.log('404 - Request not found, might still be queued');
       return res.status(200).json({
         status: 'processing',
         message: 'Still generating...'
       });
     }
 
-    if (!resultResponse.ok) {
-      const errorText = await resultResponse.text();
-      console.error('Result check error:', errorText);
+    if (!statusResponse.ok) {
+      const errorText = await statusResponse.text();
+      console.error('Status check error:', statusResponse.status, errorText);
       
-      // If it's a 405, the request might still be processing
-      if (resultResponse.status === 405) {
+      // Continue polling on errors
+      return res.status(200).json({
+        status: 'processing',
+        message: 'Checking...'
+      });
+    }
+
+    const statusData = await statusResponse.json();
+    console.log('Status data:', JSON.stringify(statusData).substring(0, 300));
+
+    // Check various possible status fields
+    const status = statusData.status || statusData.state;
+    console.log('Current status:', status);
+
+    if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING') {
+      return res.status(200).json({
+        status: 'processing',
+        message: 'Still generating...'
+      });
+    }
+
+    if (status === 'COMPLETED' || status === 'SUCCESS') {
+      // Try to get the result
+      const resultUrl = `https://fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`;
+      console.log('Getting result from:', resultUrl);
+      
+      const resultResponse = await fetch(resultUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Key ${apiKey}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!resultResponse.ok) {
+        console.error('Failed to get result:', resultResponse.status);
+        throw new Error('Failed to retrieve result');
+      }
+
+      const result = await resultResponse.json();
+      console.log('Result received');
+
+      if (result.images && result.images.length > 0) {
         return res.status(200).json({
-          status: 'processing',
-          message: 'Still generating...'
+          status: 'completed',
+          imageUrl: result.images[0].url
         });
       }
-      
-      throw new Error(`Result check failed: ${resultResponse.status}`);
+
+      // Check if result has data in different structure
+      if (result.data && result.data.images && result.data.images.length > 0) {
+        return res.status(200).json({
+          status: 'completed',
+          imageUrl: result.data.images[0].url
+        });
+      }
+
+      console.error('Result structure unexpected:', result);
+      throw new Error('Unexpected result structure');
     }
 
-    const result = await resultResponse.json();
-    console.log('Result received:', JSON.stringify(result).substring(0, 200));
-
-    // Check if it has the completed data
-    if (result.images && result.images.length > 0) {
-      console.log('Generation complete!');
-      return res.status(200).json({
-        status: 'completed',
-        imageUrl: result.images[0].url
-      });
-    }
-
-    // Check status field if present
-    if (result.status === 'IN_PROGRESS' || result.status === 'IN_QUEUE') {
-      return res.status(200).json({
-        status: 'processing',
-        message: 'Still generating...'
-      });
-    }
-
-    if (result.status === 'FAILED') {
+    if (status === 'FAILED' || status === 'ERROR') {
       console.error('Generation failed');
       return res.status(500).json({
         status: 'failed',
         error: 'Generation failed',
-        details: result.error || 'Unknown error'
+        details: statusData.error || 'Unknown error'
       });
     }
 
-    // Unknown response
-    console.log('Unknown result structure:', result);
+    // Unknown status, keep polling
+    console.log('Unknown status, continuing to poll');
     return res.status(200).json({
       status: 'processing',
-      message: 'Still processing...'
+      message: 'Processing...'
     });
 
   } catch (error) {
-    console.error('Error checking status:', error);
+    console.error('Error in check-status:', error);
     console.error('Error message:', error.message);
     
-    // Don't fail completely, just report as still processing
+    // Don't fail, just keep polling
     return res.status(200).json({
       status: 'processing',
       message: 'Checking status...'

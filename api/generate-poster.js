@@ -42,12 +42,11 @@ export default async function handler(req, res) {
     if (photo1) images.push(photo1);
     if (photo2) images.push(photo2);
 
-    console.log('Generating image with Flux Kontext Pro...');
-    console.log('Prompt:', prompt);
+    console.log('Starting image generation with Flux Kontext Pro...');
     console.log('Number of reference images:', images.length);
 
-    // Call Fal.ai Flux Kontext Pro
-    const result = await fal.subscribe("fal-ai/flux-kontext-pro", {
+    // Queue the job (don't wait for it to complete)
+    const { request_id } = await fal.queue.submit("fal-ai/flux-kontext-pro", {
       input: {
         prompt: prompt,
         images: images,
@@ -60,26 +59,22 @@ export default async function handler(req, res) {
           width: 768,
           height: 1024
         }
-      },
-      logs: true,
-      onQueueUpdate: (update) => {
-        console.log('Queue update:', update.status);
-      },
+      }
     });
 
-    console.log('Generation complete!');
+    console.log('Job queued with request_id:', request_id);
 
-    // Return the generated image URL
+    // Return the request_id immediately so the frontend can poll for results
     return res.status(200).json({
       success: true,
-      imageUrl: result.images[0].url,
-      prompt: prompt
+      requestId: request_id,
+      message: 'Generation started'
     });
 
   } catch (error) {
-    console.error('Error generating poster:', error);
+    console.error('Error starting generation:', error);
     return res.status(500).json({ 
-      error: 'Failed to generate poster',
+      error: 'Failed to start poster generation',
       details: error.message 
     });
   }

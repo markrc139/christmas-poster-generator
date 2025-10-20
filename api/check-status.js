@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     console.log('Checking status for request:', requestId);
 
     // Check status using REST API
-    const statusResponse = await fetch(`https://queue.fal.run/fal-ai/flux-kontext-pro/requests/${requestId}/status`, {
+    const statusResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}/status`, {
       method: 'GET',
       headers: {
         'Authorization': `Key ${apiKey}`,
@@ -57,7 +57,7 @@ export default async function handler(req, res) {
 
     if (statusData.status === 'COMPLETED') {
       // Get the result
-      const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux-kontext-pro/requests/${requestId}`, {
+      const resultResponse = await fetch(`https://queue.fal.run/fal-ai/flux/kontext-pro/requests/${requestId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Key ${apiKey}`,

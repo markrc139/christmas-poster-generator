@@ -43,9 +43,9 @@ export default async function handler(req, res) {
       payload.image_url = photo1 || photo2;
     }
 
-    console.log('Calling Fal.ai');
+    console.log('Calling Fal.ai queue');
 
-    const falResponse = await fetch('https://fal.run/fal-ai/flux-pro', {
+    const falResponse = await fetch('https://queue.fal.run/fal-ai/flux-pro', {
       method: 'POST',
       headers: {
         'Authorization': 'Key ' + apiKey,
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
     const requestId = falData.request_id || falData.id || falData.inference_id;
 
     if (!requestId) {
-      console.error('No request ID');
+      console.error('No request ID in response');
       return res.status(500).json({ error: 'No request ID from Fal.ai' });
     }
 

@@ -18,94 +18,63 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing requestId' });
     }
 
-    const apiKey = process.env.FAL_KEY;
+    const apiKey = process.env.REPLICATE_API_TOKEN;
 
     console.log('Checking status for:', requestId);
 
-    const resultUrl = `https://queue.fal.run/fal-ai/flux-pro/requests/${requestId}`;
-    console.log('Getting result from:', resultUrl);
-    
-    const resultResponse = await fetch(resultUrl, {
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${requestId}`, {
       method: 'GET',
       headers: {
-        'Authorization': 'Key ' + apiKey
+        'Authorization': 'Token ' + apiKey,
+        'Content-Type': 'application/json'
       }
     });
 
-    console.log('Status check response:', resultResponse.status);
+    console.log('Status check response:', response.status);
 
-    if (resultResponse.status === 404) {
-      console.log('404 - Still queued');
-      return res.status(200).json({
-        status: 'processing',
-        message: 'Still generating...'
-      });
-    }
-
-    if (resultResponse.status === 405) {
-      console.log('405 - Still processing');
-      return res.status(200).json({
-        status: 'processing',
-        message: 'Processing...'
-      });
-    }
-
-    if (!resultResponse.ok) {
-      const errorText = await resultResponse.text();
-      
-      // Check if it's just "still in progress"
-      if (errorText.includes('still in progress')) {
-        console.log('Still in progress');
-        return res.status(200).json({
-          status: 'processing',
-          message: 'Still generating...'
-        });
-      }
-      
-      console.error('Check error:', errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Status check error:', errorText);
       return res.status(200).json({
         status: 'processing',
         message: 'Checking...'
       });
     }
 
-    const result = await resultResponse.json();
-    console.log('Result received:', JSON.stringify(result).substring(0, 300));
+    const result = await response.json();
+    console.log('Status:', result.status);
 
-    if (result.images && result.images.length > 0) {
-      console.log('Complete!');
-      return res.status(200).json({
-        status: 'completed',
-        imageUrl: result.images[0].url
-      });
-    }
-
-    if (result.data && result.data.images && result.data.images.length > 0) {
-      console.log('Complete (nested)!');
-      return res.status(200).json({
-        status: 'completed',
-        imageUrl: result.data.images[0].url
-      });
-    }
-
-    const status = result.status || result.state;
-    
-    if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING') {
+    // Replicate statuses: starting, processing, succeeded, failed, canceled
+    if (result.status === 'starting' || result.status === 'processing') {
       return res.status(200).json({
         status: 'processing',
         message: 'Still generating...'
       });
     }
 
-    if (status === 'FAILED' || status === 'ERROR') {
-      console.error('Generation failed');
-      return res.status(500).json({
-        status: 'failed',
-        error: 'Generation failed'
+    if (result.status === 'succeeded') {
+      console.log('Generation complete!');
+      
+      // Replicate returns output as an array of URLs
+      const imageUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+      
+      return res.status(200).json({
+        status: 'completed',
+        imageUrl: imageUrl
       });
     }
 
-    console.log('Unknown status, continuing');
+    if (result.status === 'failed' || result.status === 'canceled') {
+      console.error('Generation failed:', result.error);
+      return res.status(500).json({
+        status: 'failed',
+        error: 'Generation failed',
+        details: result.error
+      });
+    }
+
+    // Unknown status
+    console.log('Unknown status, continuing to poll');
     return res.status(200).json({
       status: 'processing',
       message: 'Processing...'

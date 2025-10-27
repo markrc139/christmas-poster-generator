@@ -179,7 +179,7 @@
             margin-top: 20px;
         }
 
-        .generate-btn:hover {
+        .generate-btn:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 8px 20px rgba(196, 30, 58, 0.4);
         }
@@ -383,7 +383,7 @@
                 </div>
             </div>
 
-            <button type="submit" class="generate-btn">Generate My Image 🎬</button>
+            <button type="submit" class="generate-btn">Generate My Poster 🎬</button>
         </form>
 
         <div class="loading" id="loading">
@@ -412,6 +412,7 @@
     </div>
 
     <script>
+        // Create snowflakes animation
         function createSnowflakes() {
             const snowflakeCount = 50;
             for (let i = 0; i < snowflakeCount; i++) {
@@ -428,6 +429,7 @@
         }
         createSnowflakes();
 
+        // Photo upload handling
         const uploadBox1 = document.getElementById('uploadBox1');
         const uploadBox2 = document.getElementById('uploadBox2');
         const photo1Input = document.getElementById('photo1');
@@ -504,162 +506,178 @@
             }
         }
 
-        let pollInterval;
+        // Form submission and poster generation
+        const form = document.getElementById('posterForm');
+        const loading = document.getElementById('loading');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultSection = document.getElementById('resultSection');
+        const generatedImage = document.getElementById('generatedImage');
+        const progressText = document.getElementById('progressText');
 
-        document.getElementById('posterForm').addEventListener('submit', async (e) => {
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
-
+            
             const movieTitle = document.getElementById('movieTitle').value;
             const christmasDrink = document.getElementById('christmasDrink').value;
             const treeDecorations = document.getElementById('treeDecorations').value;
             const christmasDinner = document.getElementById('christmasDinner').value;
 
-            document.getElementById('errorMessage').classList.remove('active');
-            document.getElementById('loading').classList.add('active');
-            document.getElementById('progressText').textContent = 'Starting generation...';
-            document.querySelector('.generate-btn').disabled = true;
-
-            const formData = {
-                movieTitle,
-                christmasDrink,
-                treeDecorations,
-                christmasDinner,
-                photo1: uploadedPhotos.photo1,
-                photo2: uploadedPhotos.photo2
-            };
+            // Hide previous results and errors
+            resultSection.classList.remove('active');
+            errorMessage.classList.remove('active');
+            
+            // Show loading
+            loading.classList.add('active');
+            form.querySelector('.generate-btn').disabled = true;
 
             try {
-                const response = await fetch('/api/generate-poster', {
+                // Step 1: Generate the poster
+                progressText.textContent = 'Starting poster generation...';
+                
+                const generateResponse = await fetch('/api/generate-poster', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify({
+                        movieTitle,
+                        christmasDrink,
+                        treeDecorations,
+                        christmasDinner,
+                        photo1: uploadedPhotos.photo1,
+                        photo2: uploadedPhotos.photo2
+                    })
                 });
 
-                const responseText = await response.text();
-                console.log('Raw response:', responseText);
-
-                let data;
-                try {
-                    data = JSON.parse(responseText);
-                } catch (e) {
-                    throw new Error('Server returned invalid response: ' + responseText.substring(0, 100));
+                if (!generateResponse.ok) {
+                    throw new Error('Failed to start generation');
                 }
 
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to start generation');
+                const generateData = await generateResponse.json();
+                
+                if (!generateData.success || !generateData.requestId) {
+                    throw new Error(generateData.error || 'Failed to start generation');
                 }
 
-                const requestId = data.requestId;
-                console.log('Generation started with ID:', requestId);
+                console.log('Generation started with ID:', generateData.requestId);
 
-                let pollCount = 0;
-                pollInterval = setInterval(async () => {
-                    pollCount++;
-                    document.getElementById('progressText').textContent = 
-                        `Generating your poster... (${pollCount * 3} seconds elapsed)`;
-
-                    try {
-                        const statusResponse = await fetch('/api/check-status', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ requestId })
-                        });
-
-                        // Handle non-JSON responses
-                        const statusText = await statusResponse.text();
-                        let statusData;
-                        
-                        try {
-                            statusData = JSON.parse(statusText);
-                        } catch (e) {
-                            console.log('Non-JSON status response, continuing to poll');
-                            return; // Continue polling
-                        }
-
-                        if (statusData.status === 'completed') {
-                            clearInterval(pollInterval);
-                            displayResult(statusData.imageUrl);
-                        } else if (statusData.status === 'failed') {
-                            clearInterval(pollInterval);
-                            throw new Error(statusData.error || 'Generation failed');
-                        }
-
-                    } catch (error) {
-                        clearInterval(pollInterval);
-                        console.error('Error checking status:', error);
-                        showError(error.message || 'Error checking generation status');
-                        document.getElementById('loading').classList.remove('active');
-                        document.querySelector('.generate-btn').disabled = false;
-                    }
-                }, 3000);
+                // Step 2: Poll for results
+                await pollForResult(generateData.requestId, uploadedPhotos.photo1, uploadedPhotos.photo2);
 
             } catch (error) {
                 console.error('Error:', error);
-                showError(error.message || 'An error occurred. Please try again.');
-                document.getElementById('loading').classList.remove('active');
-                document.querySelector('.generate-btn').disabled = false;
+                showError(error.message || 'Something went wrong. Please try again.');
+                loading.classList.remove('active');
+                form.querySelector('.generate-btn').disabled = false;
             }
         });
 
-        function showError(message) {
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = message;
-            errorDiv.classList.add('active');
+        async function pollForResult(requestId, photo1, photo2) {
+            let attempts = 0;
+            const maxAttempts = 120; // 10 minutes max
+            let currentStep = 'generation';
+            let swapRequestId = null;
+
+            const poll = async () => {
+                attempts++;
+                
+                if (attempts > maxAttempts) {
+                    throw new Error('Generation timed out. Please try again.');
+                }
+
+                try {
+                    const statusResponse = await fetch('/api/check-status', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            requestId: swapRequestId || requestId,
+                            photo1,
+                            photo2,
+                            step: currentStep
+                        })
+                    });
+
+                    if (!statusResponse.ok) {
+                        throw new Error('Failed to check status');
+                    }
+
+                    const statusData = await statusResponse.json();
+                    console.log('Status:', statusData);
+
+                    if (statusData.status === 'completed') {
+                        // Success!
+                        progressText.textContent = 'Done! 🎉';
+                        generatedImage.src = statusData.imageUrl;
+                        loading.classList.remove('active');
+                        resultSection.classList.add('active');
+                        form.querySelector('.generate-btn').disabled = false;
+                        setupSocialSharing(statusData.imageUrl);
+                        return;
+                    } else if (statusData.status === 'failed') {
+                        throw new Error(statusData.error || 'Generation failed');
+                    } else if (statusData.status === 'processing') {
+                        // Update progress message
+                        if (statusData.message) {
+                            progressText.textContent = statusData.message;
+                        }
+                        
+                        // Check if we moved to face swap step
+                        if (statusData.step === 'faceswap' && statusData.swapRequestId) {
+                            currentStep = 'faceswap';
+                            swapRequestId = statusData.swapRequestId;
+                        }
+                        
+                        // Continue polling
+                        setTimeout(poll, 5000); // Poll every 5 seconds
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    throw error;
+                }
+            };
+
+            await poll();
         }
 
-        function displayResult(imageUrl) {
-            document.getElementById('loading').classList.remove('active');
-            document.querySelector('.generate-btn').disabled = false;
-            
-            const resultSection = document.getElementById('resultSection');
-            const generatedImage = document.getElementById('generatedImage');
-            
-            generatedImage.src = imageUrl;
-            resultSection.classList.add('active');
-            resultSection.scrollIntoView({ behavior: 'smooth' });
-            
-            setupSocialSharing(imageUrl);
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
         }
 
         function setupSocialSharing(imageUrl) {
-            const shareText = "Check out my Christmas movie poster! 🎄";
-            const currentUrl = window.location.href;
+            const downloadBtn = document.getElementById('downloadBtn');
+            const facebookBtn = document.getElementById('facebookBtn');
+            const twitterBtn = document.getElementById('twitterBtn');
+            const linkedinBtn = document.getElementById('linkedinBtn');
+            const instagramBtn = document.getElementById('instagramBtn');
 
-            document.getElementById('downloadBtn').addEventListener('click', async () => {
-                try {
-                    const response = await fetch(imageUrl);
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'christmas-movie-poster.png';
-                    link.click();
-                    window.URL.revokeObjectURL(url);
-                } catch (error) {
-                    console.error('Download error:', error);
-                    alert('Could not download image. Please right-click and save the image instead.');
-                }
-            });
+            const shareText = "Check out my AI-generated Christmas movie poster! 🎄🎬";
+            const shareUrl = window.location.href;
 
-            document.getElementById('facebookBtn').addEventListener('click', () => {
-                window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(currentUrl)}`, '_blank');
-            });
+            downloadBtn.onclick = () => {
+                const a = document.createElement('a');
+                a.href = imageUrl;
+                a.download = 'christmas-movie-poster.png';
+                a.click();
+            };
 
-            document.getElementById('twitterBtn').addEventListener('click', () => {
-                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(currentUrl)}`, '_blank');
-            });
+            facebookBtn.onclick = () => {
+                window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`, '_blank');
+            };
 
-            document.getElementById('linkedinBtn').addEventListener('click', () => {
-                window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(currentUrl)}`, '_blank');
-            });
+            twitterBtn.onclick = () => {
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`, '_blank');
+            };
 
-            document.getElementById('instagramBtn').addEventListener('click', () => {
-                alert('To share on Instagram:\n1. Download the image\n2. Open Instagram app\n3. Create a new post\n4. Upload your downloaded poster!');
-            });
+            linkedinBtn.onclick = () => {
+                window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`, '_blank');
+            };
+
+            instagramBtn.onclick = () => {
+                alert('To share on Instagram, download the image and post it from your phone!');
+            };
         }
     </script>
 </body>

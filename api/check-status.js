@@ -206,7 +206,7 @@ export default async function handler(req, res) {
       }
 
       try {
-        const statusResponse = await fetch(`https://api.segmind.com/requests/${requestId}`, {
+        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
           method: 'GET',
           headers: {
             'x-api-key': segmindKey

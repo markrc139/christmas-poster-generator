@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -21,78 +22,83 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Require at least one photo for face-swapping
-    if (!photo1 && !photo2) {
-      return res.status(400).json({ error: 'At least one photo is required for face generation' });
-    }
-
     // Count people for prompt
     const numPeople = (photo1 ? 1 : 0) + (photo2 ? 1 : 0);
     const peopleText = numPeople === 2 
       ? 'A romantic couple, man and woman, standing together' 
-      : 'A person standing';
+      : numPeople === 1 
+      ? 'A person standing' 
+      : 'An empty cozy';
 
-    // Build the prompt
-    const prompt = `Professional Christmas movie poster. ${peopleText} in a cozy living room decorated for Christmas. Warm crackling fireplace in background. Elegant dinner table with ${christmasDinner}. Beautiful Christmas tree with ${treeDecorations}. ${christmasDrink} on side table. Movie title "${movieTitle}" in elegant festive typography at top. Romantic, warm, festive atmosphere. Soft lighting from fireplace and Christmas lights. Cinematic composition. High quality, photorealistic. The people are the main focus, prominently featured.`;
+    // Build the prompt for FLUX Pro
+    const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. ${peopleText} in a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;
 
-    console.log('Calling Replicate API');
+    console.log('Calling Fal.ai FLUX Pro API');
 
-    const apiKey = process.env.REPLICATE_API_TOKEN;
+    const apiKey = process.env.FAL_KEY;
     
     if (!apiKey) {
-      throw new Error('REPLICATE_API_TOKEN not configured');
+      throw new Error('FAL_KEY not configured');
     }
 
-    // Use InstantID model
     const payload = {
-      version: "7d6da9c0fc8e4b9c3b5f5e5c5e5c5e5c5e5c5e5c5e5c5e5c5e5c5e5c5e5c5e5",
-      input: {
-        image: photo1 || photo2,
-        prompt: prompt,
-        negative_prompt: "blurry, low quality, distorted, deformed, ugly",
-        num_outputs: 1,
-        width: 768,
-        height: 1024
-      }
+      prompt: prompt,
+      num_inference_steps: 28,
+      guidance_scale: 3.5,
+      num_images: 1,
+      output_format: "png",
+      aspect_ratio: "2:3"
     };
 
-    // If there are 2 photos, we'll need to handle differently
-    // For now, we'll use the first photo as the main face reference
+    // Add photo reference if provided (helps with style guidance)
+    if (photo1 || photo2) {
+      payload.image_url = photo1 || photo2;
+      payload.image_prompt_strength = 0.1; // Low strength for style reference only
+    }
 
-    console.log('Submitting to Replicate');
+    console.log('Submitting to FLUX Pro queue');
 
-    const response = await fetch('https://api.replicate.com/v1/predictions', {
+    const falResponse = await fetch('https://queue.fal.run/fal-ai/flux-pro', {
       method: 'POST',
       headers: {
-        'Authorization': 'Token ' + apiKey,
+        'Authorization': 'Key ' + apiKey,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
     });
 
-    console.log('Replicate response status:', response.status);
+    console.log('FLUX Pro response status:', falResponse.status);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Replicate error:', errorText);
-      throw new Error(`Replicate API error: ${response.status}`);
+    if (!falResponse.ok) {
+      const errorText = await falResponse.text();
+      console.error('Fal.ai error:', errorText);
+      return res.status(500).json({ error: 'Fal.ai error', details: errorText });
     }
 
-    const data = await response.json();
-    console.log('Prediction created, ID:', data.id);
+    const falData = await falResponse.json();
+    console.log('Response data:', JSON.stringify(falData).substring(0, 500));
+
+    // Extract request ID from various possible response formats
+    const requestId = falData.request_id || falData.id || falData.inference_id;
+
+    if (!requestId) {
+      console.error('No request ID found in response');
+      return res.status(500).json({ error: 'No request ID from Fal.ai' });
+    }
+
+    console.log('Generation started successfully, request ID:', requestId);
 
     return res.status(200).json({
       success: true,
-      requestId: data.id,
-      message: 'Generation started'
+      requestId: requestId,
+      message: 'Poster generation started'
     });
 
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error in generate-poster:', error.message);
     return res.status(500).json({ 
-      error: 'Failed to start poster generation',
+      error: 'Failed to start generation',
       details: error.message
     });
   }
 }
-

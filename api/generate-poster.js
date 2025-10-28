@@ -22,18 +22,31 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Count people for prompt
+    // Count people and build detailed description
     const numPeople = (photo1 ? 1 : 0) + (photo2 ? 1 : 0);
-    const peopleText = numPeople === 2 
-      ? 'A romantic couple, man and woman, standing together' 
-      : numPeople === 1 
-      ? 'A person standing' 
-      : 'An empty cozy';
+    
+    let peopleDescription = '';
+    if (numPeople === 0) {
+      peopleDescription = 'An empty, cozy living room decorated for Christmas';
+    } else if (numPeople === 1) {
+      peopleDescription = 'A person standing prominently in the center foreground, facing the camera directly with a warm smile. Full body visible from head to toe, positioned as the main focal point of the scene';
+    } else {
+      peopleDescription = 'Two people standing together prominently in the center foreground, both facing the camera directly with warm smiles, positioned side by side. Both full bodies visible from head to toe, positioned as the main focal points of the scene';
+    }
 
-    // Build the prompt for FLUX Pro
-    const prompt = `A cozy Christmas movie poster in the style of a romantic holiday film. ${peopleText} in a warm, inviting living room with a crackling fireplace in the background. On a beautifully set dinner table in the foreground, there is ${christmasDinner}. A decorated Christmas tree stands nearby with ${treeDecorations}. On a side table, there is ${christmasDrink}. The movie title "${movieTitle}" appears at the top in elegant, festive typography. The overall atmosphere is warm, romantic, and festive with soft lighting from the fireplace and Christmas lights. Cinematic composition, professional movie poster design, high quality, photorealistic.`;
+    // Build the improved prompt with emphasis on portrait orientation and movie poster style
+    const prompt = `A professional Christmas romantic comedy movie poster in portrait orientation (2:3 aspect ratio). ${peopleDescription}, positioned in the center-front of a beautifully decorated, warm, inviting living room. 
 
-    console.log('Calling Fal.ai FLUX Pro API');
+Behind them: a crackling fireplace with stockings hung, a gorgeously decorated Christmas tree adorned with ${treeDecorations}, warm ambient lighting from Christmas lights creating a cozy glow.
+
+In the foreground: an elegantly set dinner table displaying ${christmasDinner}, and on a nearby side table sits ${christmasDrink}.
+
+At the top of the poster in elegant, festive holiday typography: "${movieTitle}"
+
+Style: Professional movie poster composition, cinematic lighting, warm and romantic holiday atmosphere, Hallmark Christmas movie aesthetic, people are the clear protagonists facing camera, portrait orientation, high quality, photorealistic. The people should be facing forward toward the camera, fully visible, positioned prominently as the stars of this romantic holiday film.`;
+
+    console.log('Prompt created, calling Fal.ai FLUX Pro API');
+    console.log('Number of people in scene:', numPeople);
 
     const apiKey = process.env.FAL_KEY;
     
@@ -43,18 +56,16 @@ export default async function handler(req, res) {
 
     const payload = {
       prompt: prompt,
-      num_inference_steps: 28,
-      guidance_scale: 3.5,
+      num_inference_steps: 30,
+      guidance_scale: 4.0,
       num_images: 1,
       output_format: "png",
-      aspect_ratio: "2:3"
+      aspect_ratio: "2:3",
+      safety_tolerance: "2"
     };
 
-    // Add photo reference if provided (helps with style guidance)
-    if (photo1 || photo2) {
-      payload.image_url = photo1 || photo2;
-      payload.image_prompt_strength = 0.1; // Low strength for style reference only
-    }
+    // Don't use image_url reference - it can confuse the generation
+    // Let FLUX Pro generate the scene from scratch, then we'll face swap
 
     console.log('Submitting to FLUX Pro queue');
 
@@ -91,7 +102,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       requestId: requestId,
-      message: 'Poster generation started'
+      message: 'Poster generation started',
+      numPeople: numPeople
     });
 
   } catch (error) {

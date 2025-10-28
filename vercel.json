@@ -19,9 +19,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "FAL_KEY": "@fal_key",
-    "SEGMIND_API_KEY": "@segmind_api_key"
-  }
+  ]
 }

@@ -15,38 +15,51 @@ export default async function handler(req, res) {
   console.log('Generate poster function started');
 
   try {
-    const { movieTitle, christmasDrink, treeDecorations, christmasDinner, photo1, photo2 } = req.body;
+    const { movieTitle, christmasDrink, treeDecorations, christmasDinner, photo1, photo2, gender1, gender2 } = req.body;
 
     // Validate required fields
     if (!movieTitle || !christmasDrink || !treeDecorations || !christmasDinner) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Count people and build detailed description
+    // Count people and determine genders
     const numPeople = (photo1 ? 1 : 0) + (photo2 ? 1 : 0);
+    
+    console.log('Number of photos:', numPeople);
+    console.log('Gender 1:', gender1);
+    console.log('Gender 2:', gender2);
     
     let peopleDescription = '';
     if (numPeople === 0) {
       peopleDescription = 'An empty, cozy living room decorated for Christmas';
     } else if (numPeople === 1) {
-      peopleDescription = 'A person standing prominently in the center foreground, facing the camera directly with a warm smile. Full body visible from head to toe, positioned as the main focal point of the scene';
-    } else {
-      peopleDescription = 'Two people standing together prominently in the center foreground, both facing the camera directly with warm smiles, positioned side by side. Both full bodies visible from head to toe, positioned as the main focal points of the scene';
+      const gender = gender1 || 'person';
+      const descriptor = gender === 'male' ? 'a handsome man' : gender === 'female' ? 'a beautiful woman' : 'a person';
+      peopleDescription = `${descriptor} standing prominently in the center foreground, facing the camera directly with a warm smile, full body visible from head to toe, positioned as the main focal point`;
+    } else if (numPeople === 2) {
+      const g1 = gender1 || 'person';
+      const g2 = gender2 || 'person';
+      
+      let person1 = g1 === 'male' ? 'a handsome man' : g1 === 'female' ? 'a beautiful woman' : 'a person';
+      let person2 = g2 === 'male' ? 'a handsome man' : g2 === 'female' ? 'a beautiful woman' : 'a person';
+      
+      peopleDescription = `Two people standing together: ${person1} and ${person2}, both prominently positioned in the center foreground, standing side by side, both facing the camera directly with warm smiles, both full bodies visible from head to toe, positioned as the main co-stars`;
     }
 
-    // Build the improved prompt with emphasis on portrait orientation and movie poster style
-    const prompt = `A professional Christmas romantic comedy movie poster in portrait orientation (2:3 aspect ratio). ${peopleDescription}, positioned in the center-front of a beautifully decorated, warm, inviting living room. 
+    // Build the improved prompt - very explicit about composition
+    const prompt = `Professional Christmas romantic comedy movie poster. IMPORTANT: Portrait orientation, taller than wide, vertical format.
 
-Behind them: a crackling fireplace with stockings hung, a gorgeously decorated Christmas tree adorned with ${treeDecorations}, warm ambient lighting from Christmas lights creating a cozy glow.
+Main subjects: ${peopleDescription} of the scene.
 
-In the foreground: an elegantly set dinner table displaying ${christmasDinner}, and on a nearby side table sits ${christmasDrink}.
+Setting: They are standing in the center-front of a beautifully decorated, warm living room. Behind them is a crackling fireplace with stockings, and a gorgeously decorated Christmas tree with ${treeDecorations}. Warm Christmas lights create a cozy golden glow throughout the room.
 
-At the top of the poster in elegant, festive holiday typography: "${movieTitle}"
+Foreground details: An elegantly set dinner table with ${christmasDinner}, and ${christmasDrink} on a nearby side table.
 
-Style: Professional movie poster composition, cinematic lighting, warm and romantic holiday atmosphere, Hallmark Christmas movie aesthetic, people are the clear protagonists facing camera, portrait orientation, high quality, photorealistic. The people should be facing forward toward the camera, fully visible, positioned prominently as the stars of this romantic holiday film.`;
+Style: Cinematic movie poster composition, professional lighting, warm romantic holiday atmosphere, Hallmark Christmas movie aesthetic, photorealistic, high quality. The people must be facing forward toward the camera, positioned prominently and clearly visible as the stars of this film.
 
-    console.log('Prompt created, calling Fal.ai FLUX Pro API');
-    console.log('Number of people in scene:', numPeople);
+CRITICAL: Portrait orientation (taller than wide), vertical poster format, 9:16 aspect ratio.`;
+
+    console.log('Full prompt:', prompt);
 
     const apiKey = process.env.FAL_KEY;
     
@@ -56,17 +69,15 @@ Style: Professional movie poster composition, cinematic lighting, warm and roman
 
     const payload = {
       prompt: prompt,
-      num_inference_steps: 30,
-      guidance_scale: 4.0,
+      num_inference_steps: 35,
+      guidance_scale: 5.0,
       num_images: 1,
       output_format: "png",
-      aspect_ratio: "2:3",
+      aspect_ratio: "9:16",
       safety_tolerance: "2"
     };
 
-    // Don't use image_url reference - it can confuse the generation
-    // Let FLUX Pro generate the scene from scratch, then we'll face swap
-
+    console.log('Payload aspect_ratio:', payload.aspect_ratio);
     console.log('Submitting to FLUX Pro queue');
 
     const falResponse = await fetch('https://queue.fal.run/fal-ai/flux-pro', {
@@ -89,7 +100,6 @@ Style: Professional movie poster composition, cinematic lighting, warm and roman
     const falData = await falResponse.json();
     console.log('Response data:', JSON.stringify(falData).substring(0, 500));
 
-    // Extract request ID from various possible response formats
     const requestId = falData.request_id || falData.id || falData.inference_id;
 
     if (!requestId) {

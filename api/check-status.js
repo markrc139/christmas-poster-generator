@@ -104,8 +104,8 @@ export default async function handler(req, res) {
           });
         }
 
-        // STEP 2: Start face-swap with Segmind
-        console.log('Starting face swap with Segmind');
+        // STEP 2: Start FIRST face-swap with Segmind
+        console.log('Starting first face swap with Segmind');
         const segmindKey = process.env.SEGMIND_API_KEY;
 
         if (!segmindKey) {
@@ -116,17 +116,13 @@ export default async function handler(req, res) {
           });
         }
 
-        // Use the first available photo for face swap
-        const sourcePhoto = photo1 || photo2;
-
+        // Always start with photo1 for first swap
         const swapPayload = {
-          source_face_image: sourcePhoto,
+          source_face_image: photo1,
           target_faces_image: generatedImageUrl
         };
 
-        console.log('Face swap payload prepared');
-        console.log('Source photo length:', sourcePhoto ? sourcePhoto.length : 'null');
-        console.log('Target image URL:', generatedImageUrl);
+        console.log('First face swap: using photo1');
 
         try {
           const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
@@ -142,47 +138,30 @@ export default async function handler(req, res) {
 
           if (!swapResponse.ok) {
             const errorText = await swapResponse.text();
-            console.error('Segmind initiation error:', swapResponse.status);
-            console.error('Segmind error details:', errorText);
-            // Return original image if face-swap fails
+            console.error('Segmind error:', errorText);
             return res.status(200).json({
               status: 'completed',
-              imageUrl: generatedImageUrl,
-              warning: 'Face swap failed to start'
+              imageUrl: generatedImageUrl
             });
           }
 
           const swapData = await swapResponse.json();
-          console.log('Face swap response:', JSON.stringify(swapData));
+          console.log('First face swap queued:', JSON.stringify(swapData));
 
           const swapRequestId = swapData.request_id || swapData.id || swapData.requestId;
-          
-          if (!swapRequestId) {
-            console.error('No swap request ID found in response:', swapData);
-            return res.status(200).json({
-              status: 'completed',
-              imageUrl: generatedImageUrl,
-              warning: 'Face swap ID missing'
-            });
-          }
-
-          console.log('Face swap queued with ID:', swapRequestId);
 
           // Return processing status with face swap request ID
           return res.status(200).json({
             status: 'processing',
-            message: 'Adding your face to the poster... 🎭',
-            step: 'faceswap',
+            message: 'Adding first face to the poster... 🎭',
+            step: 'faceswap1',
             swapRequestId: swapRequestId
           });
         } catch (swapError) {
-          console.error('Face swap initiation exception:', swapError.message);
-          console.error('Stack:', swapError.stack);
-          // Return original image if face-swap fails
+          console.error('Face swap initiation error:', swapError);
           return res.status(200).json({
             status: 'completed',
-            imageUrl: generatedImageUrl,
-            warning: 'Face swap unavailable'
+            imageUrl: generatedImageUrl
           });
         }
       }
@@ -213,9 +192,9 @@ export default async function handler(req, res) {
         step: 'generation'
       });
 
-    } else if (currentStep === 'faceswap') {
-      // STEP 2: Check Segmind face-swap status
-      console.log('Checking Segmind face swap status for request ID:', requestId);
+    } else if (currentStep === 'faceswap1') {
+      // STEP 2: Check FIRST face-swap status
+      console.log('Checking first face swap status...');
       const segmindKey = process.env.SEGMIND_API_KEY;
       
       if (!segmindKey) {
@@ -226,115 +205,120 @@ export default async function handler(req, res) {
         });
       }
 
-      const statusUrl = `https://api.segmind.com/workflows/request/${requestId}`;
-      console.log('Checking status at URL:', statusUrl);
-
       try {
-        const statusResponse = await fetch(statusUrl, {
+        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
           method: 'GET',
           headers: {
             'x-api-key': segmindKey
           }
         });
 
-        console.log('Segmind status response code:', statusResponse.status);
+        console.log('First face swap status response:', statusResponse.status);
 
-        // If 400 error, log detailed error information
-        if (statusResponse.status === 400) {
+        if (statusResponse.status === 400 || statusResponse.status === 404) {
           const errorText = await statusResponse.text();
-          console.error('Segmind 400 BAD REQUEST');
-          console.error('Request ID that caused error:', requestId);
-          console.error('Error response body:', errorText);
-          console.error('Status URL used:', statusUrl);
-          
-          // Try to parse error as JSON for more details
-          try {
-            const errorJson = JSON.parse(errorText);
-            console.error('Parsed error details:', JSON.stringify(errorJson, null, 2));
-          } catch (e) {
-            console.error('Could not parse error as JSON');
-          }
-          
+          console.error('First face swap error:', errorText);
           return res.status(500).json({
             status: 'failed',
-            error: 'Face swap request invalid. Please try regenerating.'
-          });
-        }
-
-        if (statusResponse.status === 404) {
-          console.error('Segmind 404 - request not found');
-          console.error('Request ID:', requestId);
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Face swap request not found. Please try again.'
+            error: 'Face swap failed. Please try again.'
           });
         }
 
         if (!statusResponse.ok) {
-          const errorText = await statusResponse.text();
-          console.error('Segmind status check failed:', statusResponse.status, errorText);
-          // Continue polling for other errors
           return res.status(200).json({
             status: 'processing',
-            message: 'Swapping faces... 🎭',
-            step: 'faceswap'
+            message: 'Swapping first face... 🎭',
+            step: 'faceswap1'
           });
         }
 
         const statusData = await statusResponse.json();
-        console.log('Face swap status data:', JSON.stringify(statusData, null, 2));
+        console.log('First face swap status:', statusData.status);
 
         if (statusData.status === 'COMPLETED') {
-          console.log('Face swap complete! Raw output type:', typeof statusData.output);
-          console.log('Face swap complete! Raw output:', statusData.output);
+          console.log('First face swap complete!');
           
-          // Extract image URL from Segmind's response format
+          // Extract image URL
           let imageUrl = null;
           let outputData = statusData.output;
           
-          // If output is a JSON string, parse it first
           if (typeof outputData === 'string') {
             try {
               outputData = JSON.parse(outputData);
-              console.log('Parsed output:', outputData);
             } catch (e) {
-              console.error('Failed to parse output as JSON:', e);
+              console.error('Failed to parse output:', e);
             }
           }
           
-          // Handle array format: [{"keyname": "...", "value": {"data": "url", "type": "image"}}]
           if (Array.isArray(outputData) && outputData.length > 0) {
             const firstItem = outputData[0];
-            console.log('First item:', firstItem);
-            if (firstItem.value && firstItem.value.data && typeof firstItem.value.data === 'string') {
+            if (firstItem.value && firstItem.value.data) {
               imageUrl = firstItem.value.data;
             }
           } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
-            // Direct URL string
             imageUrl = outputData;
           }
           
-          console.log('Face swap complete! Extracted image URL:', imageUrl);
+          console.log('First face swap result URL:', imageUrl);
           
           if (!imageUrl) {
-            console.error('Failed to extract image URL from output');
             return res.status(500).json({
               status: 'failed',
-              error: 'Could not extract image URL from face swap result'
+              error: 'Could not extract image from first face swap'
             });
           }
+
+          // Check if we need to do a SECOND face swap
+          if (!photo2) {
+            console.log('No second photo, returning result');
+            return res.status(200).json({
+              status: 'completed',
+              imageUrl: imageUrl
+            });
+          }
+
+          // Start SECOND face swap
+          console.log('Starting second face swap');
           
+          const swapPayload = {
+            source_face_image: photo2,
+            target_faces_image: imageUrl
+          };
+
+          const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
+            method: 'POST',
+            headers: {
+              'x-api-key': segmindKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(swapPayload)
+          });
+
+          if (!swapResponse.ok) {
+            const errorText = await swapResponse.text();
+            console.error('Second face swap failed to start:', errorText);
+            // Return result from first swap
+            return res.status(200).json({
+              status: 'completed',
+              imageUrl: imageUrl
+            });
+          }
+
+          const swapData = await swapResponse.json();
+          const swapRequestId = swapData.request_id || swapData.id || swapData.requestId;
+          
+          console.log('Second face swap queued:', swapRequestId);
+
           return res.status(200).json({
-            status: 'completed',
-            imageUrl: imageUrl
+            status: 'processing',
+            message: 'Adding second face to the poster... 🎭',
+            step: 'faceswap2',
+            swapRequestId: swapRequestId
           });
         }
 
         if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
-          console.error('Face swap failed with status:', statusData.status);
-          if (statusData.error) {
-            console.error('Error details:', statusData.error);
-          }
+          console.error('First face swap failed');
           return res.status(500).json({
             status: 'failed',
             error: 'Face swap failed. Please try again.'
@@ -342,19 +326,121 @@ export default async function handler(req, res) {
         }
 
         // Still processing
-        console.log('Face swap still processing, current status:', statusData.status);
         return res.status(200).json({
           status: 'processing',
-          message: 'Swapping faces... 🎭',
-          step: 'faceswap'
+          message: 'Swapping first face... 🎭',
+          step: 'faceswap1'
         });
       } catch (error) {
-        console.error('Segmind status check exception:', error.message);
-        console.error('Stack:', error.stack);
+        console.error('First face swap check error:', error);
         return res.status(200).json({
           status: 'processing',
-          message: 'Swapping faces... 🎭',
-          step: 'faceswap'
+          message: 'Swapping first face... 🎭',
+          step: 'faceswap1'
+        });
+      }
+
+    } else if (currentStep === 'faceswap2') {
+      // STEP 3: Check SECOND face-swap status
+      console.log('Checking second face swap status...');
+      const segmindKey = process.env.SEGMIND_API_KEY;
+      
+      if (!segmindKey) {
+        return res.status(500).json({
+          status: 'failed',
+          error: 'Configuration error'
+        });
+      }
+
+      try {
+        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
+          method: 'GET',
+          headers: {
+            'x-api-key': segmindKey
+          }
+        });
+
+        console.log('Second face swap status response:', statusResponse.status);
+
+        if (statusResponse.status === 400 || statusResponse.status === 404) {
+          const errorText = await statusResponse.text();
+          console.error('Second face swap error:', errorText);
+          return res.status(500).json({
+            status: 'failed',
+            error: 'Second face swap failed. Please try again.'
+          });
+        }
+
+        if (!statusResponse.ok) {
+          return res.status(200).json({
+            status: 'processing',
+            message: 'Swapping second face... 🎭',
+            step: 'faceswap2'
+          });
+        }
+
+        const statusData = await statusResponse.json();
+        console.log('Second face swap status:', statusData.status);
+
+        if (statusData.status === 'COMPLETED') {
+          console.log('Second face swap complete!');
+          
+          // Extract final image URL
+          let imageUrl = null;
+          let outputData = statusData.output;
+          
+          if (typeof outputData === 'string') {
+            try {
+              outputData = JSON.parse(outputData);
+            } catch (e) {
+              console.error('Failed to parse output:', e);
+            }
+          }
+          
+          if (Array.isArray(outputData) && outputData.length > 0) {
+            const firstItem = outputData[0];
+            if (firstItem.value && firstItem.value.data) {
+              imageUrl = firstItem.value.data;
+            }
+          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
+            imageUrl = outputData;
+          }
+          
+          console.log('Second face swap final URL:', imageUrl);
+          
+          if (!imageUrl) {
+            return res.status(500).json({
+              status: 'failed',
+              error: 'Could not extract image from second face swap'
+            });
+          }
+
+          return res.status(200).json({
+            status: 'completed',
+            imageUrl: imageUrl
+          });
+        }
+
+        if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
+          console.error('Second face swap failed');
+          return res.status(500).json({
+            status: 'failed',
+            error: 'Second face swap failed. Please try again.'
+          });
+        }
+
+        // Still processing
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Swapping second face... 🎭',
+          step: 'faceswap2'
+        });
+      } catch (error) {
+        console.error('Second face swap check error:', error);
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Swapping second face... 🎭',
+          step: 'faceswap2'
         });
       }
     }
@@ -366,8 +452,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Error in check-status:', error.message);
-    console.error('Stack:', error.stack);
-    // Return processing status to continue polling
     return res.status(200).json({
       status: 'processing',
       message: 'Checking status...'

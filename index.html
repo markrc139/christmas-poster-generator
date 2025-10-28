@@ -89,7 +89,8 @@
             font-size: 1.1em;
         }
 
-        .form-section input[type="text"] {
+        .form-section input[type="text"],
+        .form-section select {
             width: 100%;
             padding: 12px;
             border: 2px solid #2d5a3d;
@@ -98,7 +99,8 @@
             transition: border-color 0.3s;
         }
 
-        .form-section input[type="text"]:focus {
+        .form-section input[type="text"]:focus,
+        .form-section select:focus {
             outline: none;
             border-color: #c41e3a;
         }
@@ -119,8 +121,18 @@
 
         .photo-upload-section p {
             color: #666;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             font-style: italic;
+        }
+
+        .photo-instructions {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+            font-weight: bold;
         }
 
         .upload-boxes {
@@ -163,6 +175,31 @@
             max-height: 200px;
             border-radius: 8px;
             margin-top: 10px;
+        }
+
+        .gender-select {
+            margin-top: 10px;
+        }
+
+        .gender-select label {
+            display: block;
+            font-size: 0.9em;
+            color: #2d5a3d;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .gender-select select {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #c41e3a;
+            border-radius: 6px;
+            font-size: 0.9em;
+            background: white;
+        }
+
+        .gender-select.required select {
+            border-color: #c41e3a;
         }
 
         .generate-btn {
@@ -363,21 +400,46 @@
 
             <div class="photo-upload-section">
                 <h3>📸 Upload Your Photos</h3>
-                <p>Upload up to 2 clear photos of the stars of your movie (or just 1 if you prefer!)</p>
+                <p>Add yourself to the poster! (Optional but recommended)</p>
+                
+                <div class="photo-instructions">
+                    ⚠️ IMPORTANT: Upload ONE photo per person (maximum 2 people).<br>
+                    Each photo should contain only ONE person facing the camera.
+                </div>
                 
                 <div class="upload-boxes">
-                    <div class="upload-box" id="uploadBox1">
-                        <input type="file" id="photo1" accept="image/*">
-                        <div class="upload-box-content">
-                            <div class="upload-icon">📷</div>
-                            <div>Photo 1 (Optional)</div>
+                    <div>
+                        <div class="upload-box" id="uploadBox1">
+                            <input type="file" id="photo1" accept="image/*">
+                            <div class="upload-box-content">
+                                <div class="upload-icon">📷</div>
+                                <div>Person 1 (Optional)</div>
+                            </div>
+                        </div>
+                        <div class="gender-select" id="genderSelect1" style="display: none;">
+                            <label>Gender for Person 1 *</label>
+                            <select id="gender1">
+                                <option value="">Select gender...</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
                         </div>
                     </div>
-                    <div class="upload-box" id="uploadBox2">
-                        <input type="file" id="photo2" accept="image/*">
-                        <div class="upload-box-content">
-                            <div class="upload-icon">📷</div>
-                            <div>Photo 2 (Optional)</div>
+                    <div>
+                        <div class="upload-box" id="uploadBox2">
+                            <input type="file" id="photo2" accept="image/*">
+                            <div class="upload-box-content">
+                                <div class="upload-icon">📷</div>
+                                <div>Person 2 (Optional)</div>
+                            </div>
+                        </div>
+                        <div class="gender-select" id="genderSelect2" style="display: none;">
+                            <label>Gender for Person 2 *</label>
+                            <select id="gender2">
+                                <option value="">Select gender...</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -388,7 +450,7 @@
 
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p style="color: #2d5a3d; font-weight: bold;">Creating your magical poster ✨ This may take a moment...</p>
+            <p style="color: #2d5a3d; font-weight: bold;">Creating your magical poster... ✨</p>
             <p class="progress-text" id="progressText">Starting generation...</p>
         </div>
 
@@ -434,6 +496,8 @@
         const uploadBox2 = document.getElementById('uploadBox2');
         const photo1Input = document.getElementById('photo1');
         const photo2Input = document.getElementById('photo2');
+        const genderSelect1 = document.getElementById('genderSelect1');
+        const genderSelect2 = document.getElementById('genderSelect2');
 
         let uploadedPhotos = {
             photo1: null,
@@ -443,8 +507,8 @@
         uploadBox1.addEventListener('click', () => photo1Input.click());
         uploadBox2.addEventListener('click', () => photo2Input.click());
 
-        photo1Input.addEventListener('change', (e) => handlePhotoUpload(e, 'photo1', uploadBox1));
-        photo2Input.addEventListener('change', (e) => handlePhotoUpload(e, 'photo2', uploadBox2));
+        photo1Input.addEventListener('change', (e) => handlePhotoUpload(e, 'photo1', uploadBox1, genderSelect1));
+        photo2Input.addEventListener('change', (e) => handlePhotoUpload(e, 'photo2', uploadBox2, genderSelect2));
 
         function compressImage(file, maxWidth = 800, quality = 0.7) {
             return new Promise((resolve, reject) => {
@@ -478,7 +542,7 @@
             });
         }
 
-        async function handlePhotoUpload(event, photoKey, uploadBox) {
+        async function handlePhotoUpload(event, photoKey, uploadBox, genderSelectDiv) {
             const file = event.target.files[0];
             if (file) {
                 try {
@@ -493,17 +557,72 @@
                         <img src="${compressedImage}" class="preview-image" alt="Preview">
                         <div style="margin-top: 10px; color: #2d5a3d; font-weight: bold;">✓ Photo uploaded!</div>
                     `;
+                    
+                    // Show gender selector - now required
+                    genderSelectDiv.style.display = 'block';
+                    genderSelectDiv.classList.add('required');
                 } catch (error) {
                     console.error('Error compressing image:', error);
                     showError('Failed to process image. Please try a different photo.');
                     uploadBox.innerHTML = `
                         <div class="upload-box-content">
                             <div class="upload-icon">📷</div>
-                            <div>${photoKey === 'photo1' ? 'Photo 1' : 'Photo 2'} (Optional)</div>
+                            <div>${photoKey === 'photo1' ? 'Person 1' : 'Person 2'} (Optional)</div>
                         </div>
                     `;
+                    genderSelectDiv.style.display = 'none';
                 }
             }
+        }
+
+        // Add title overlay to image using canvas
+        function addTitleToImage(imageUrl, movieTitle) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Draw the original image
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Add semi-transparent overlay at top for title
+                    const overlayHeight = img.height * 0.15;
+                    const gradient = ctx.createLinearGradient(0, 0, 0, overlayHeight);
+                    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.7)');
+                    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, img.width, overlayHeight);
+                    
+                    // Add title text
+                    const fontSize = Math.max(img.width * 0.06, 30);
+                    ctx.font = `bold ${fontSize}px Georgia, serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    
+                    // Add text shadow for better visibility
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    
+                    // Draw title with gold color
+                    ctx.fillStyle = '#FFD700';
+                    const titleY = overlayHeight * 0.3;
+                    ctx.fillText(movieTitle.toUpperCase(), img.width / 2, titleY);
+                    
+                    // Get the final image as data URL
+                    const finalImageUrl = canvas.toDataURL('image/png');
+                    resolve(finalImageUrl);
+                };
+                
+                img.onerror = reject;
+                img.src = imageUrl;
+            });
         }
 
         // Form submission and poster generation
@@ -521,6 +640,18 @@
             const christmasDrink = document.getElementById('christmasDrink').value;
             const treeDecorations = document.getElementById('treeDecorations').value;
             const christmasDinner = document.getElementById('christmasDinner').value;
+            const gender1 = document.getElementById('gender1').value;
+            const gender2 = document.getElementById('gender2').value;
+
+            // MANDATORY gender validation - must select gender if photo uploaded
+            if (uploadedPhotos.photo1 && !gender1) {
+                showError('Please select gender for Person 1');
+                return;
+            }
+            if (uploadedPhotos.photo2 && !gender2) {
+                showError('Please select gender for Person 2');
+                return;
+            }
 
             // Hide previous results and errors
             resultSection.classList.remove('active');
@@ -545,7 +676,9 @@
                         treeDecorations,
                         christmasDinner,
                         photo1: uploadedPhotos.photo1,
-                        photo2: uploadedPhotos.photo2
+                        photo2: uploadedPhotos.photo2,
+                        gender1: gender1,
+                        gender2: gender2
                     })
                 });
 
@@ -562,7 +695,7 @@
                 console.log('Generation started with ID:', generateData.requestId);
 
                 // Step 2: Poll for results
-                await pollForResult(generateData.requestId, uploadedPhotos.photo1, uploadedPhotos.photo2);
+                await pollForResult(generateData.requestId, uploadedPhotos.photo1, uploadedPhotos.photo2, movieTitle);
 
             } catch (error) {
                 console.error('Error:', error);
@@ -572,7 +705,7 @@
             }
         });
 
-        async function pollForResult(requestId, photo1, photo2) {
+        async function pollForResult(requestId, photo1, photo2, movieTitle) {
             let attempts = 0;
             const maxAttempts = 120; // 10 minutes max
             let currentStep = 'generation';
@@ -607,13 +740,26 @@
                     console.log('Status:', statusData);
 
                     if (statusData.status === 'completed') {
-                        // Success!
-                        progressText.textContent = 'Done! 🎉';
-                        generatedImage.src = statusData.imageUrl;
-                        loading.classList.remove('active');
-                        resultSection.classList.add('active');
-                        form.querySelector('.generate-btn').disabled = false;
-                        setupSocialSharing(statusData.imageUrl);
+                        // Success! Now add title overlay
+                        progressText.textContent = 'Adding movie title... 🎬';
+                        
+                        try {
+                            const finalImageUrl = await addTitleToImage(statusData.imageUrl, movieTitle);
+                            progressText.textContent = 'Done! 🎉';
+                            generatedImage.src = finalImageUrl;
+                            loading.classList.remove('active');
+                            resultSection.classList.add('active');
+                            form.querySelector('.generate-btn').disabled = false;
+                            setupSocialSharing(finalImageUrl);
+                        } catch (overlayError) {
+                            console.error('Title overlay failed:', overlayError);
+                            // Fallback to image without title
+                            generatedImage.src = statusData.imageUrl;
+                            loading.classList.remove('active');
+                            resultSection.classList.add('active');
+                            form.querySelector('.generate-btn').disabled = false;
+                            setupSocialSharing(statusData.imageUrl);
+                        }
                         return;
                     } else if (statusData.status === 'failed') {
                         throw new Error(statusData.error || 'Generation failed');

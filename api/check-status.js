@@ -228,19 +228,34 @@ export default async function handler(req, res) {
         console.log('Face swap status:', statusData.status);
 
         if (statusData.status === 'COMPLETED') {
-          console.log('Face swap complete! Raw output:', statusData.output);
+          console.log('Face swap complete! Raw output type:', typeof statusData.output);
+          console.log('Face swap complete! Raw output:', JSON.stringify(statusData.output));
           
           // Extract image URL from Segmind's response format
-          let imageUrl = statusData.output;
+          let imageUrl = null;
           
           // Handle array format: [{"keyname": "...", "value": {"data": "url", "type": "image"}}]
-          if (Array.isArray(imageUrl) && imageUrl.length > 0) {
-            if (imageUrl[0].value && imageUrl[0].value.data) {
-              imageUrl = imageUrl[0].value.data;
+          if (Array.isArray(statusData.output) && statusData.output.length > 0) {
+            const firstItem = statusData.output[0];
+            console.log('First item:', JSON.stringify(firstItem));
+            if (firstItem.value && firstItem.value.data && typeof firstItem.value.data === 'string') {
+              imageUrl = firstItem.value.data;
             }
+          } else if (typeof statusData.output === 'string') {
+            // Direct URL string
+            imageUrl = statusData.output;
           }
           
           console.log('Face swap complete! Extracted image URL:', imageUrl);
+          
+          if (!imageUrl) {
+            console.error('Failed to extract image URL from output');
+            return res.status(500).json({
+              status: 'failed',
+              error: 'Could not extract image URL from face swap result'
+            });
+          }
+          
           return res.status(200).json({
             status: 'completed',
             imageUrl: imageUrl

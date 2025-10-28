@@ -30,26 +30,65 @@ export default async function handler(req, res) {
     console.log('Gender 2:', gender2);
     
     let peopleDescription = '';
+    let negativePrompt = '';
+    
     if (numPeople === 0) {
       peopleDescription = 'An empty, cozy living room decorated for Christmas';
+      negativePrompt = '';
     } else if (numPeople === 1) {
       const gender = gender1 || 'person';
-      const descriptor = gender === 'male' ? 'a handsome man' : gender === 'female' ? 'a beautiful woman' : 'a person';
-      peopleDescription = `${descriptor} standing prominently in the center foreground, facing the camera directly with a warm smile, full body visible from head to toe, positioned as the main focal point`;
+      
+      if (gender === 'male') {
+        peopleDescription = 'A single handsome man, masculine features, male person, standing prominently in the center foreground, facing the camera directly with a warm smile, full body visible from head to toe, positioned as the main focal point. ONE MALE PERSON ONLY.';
+        negativePrompt = 'woman, female, women, females, feminine features, multiple people';
+      } else if (gender === 'female') {
+        peopleDescription = 'A single beautiful woman, feminine features, female person, standing prominently in the center foreground, facing the camera directly with a warm smile, full body visible from head to toe, positioned as the main focal point. ONE FEMALE PERSON ONLY.';
+        negativePrompt = 'man, male, men, males, masculine features, multiple people';
+      } else {
+        peopleDescription = 'A person standing prominently in the center foreground, facing the camera directly with a warm smile, full body visible from head to toe, positioned as the main focal point';
+        negativePrompt = 'multiple people';
+      }
+      
     } else if (numPeople === 2) {
       const g1 = gender1 || 'person';
       const g2 = gender2 || 'person';
       
-      let person1 = g1 === 'male' ? 'a handsome man' : g1 === 'female' ? 'a beautiful woman' : 'a person';
-      let person2 = g2 === 'male' ? 'a handsome man' : g2 === 'female' ? 'a beautiful woman' : 'a person';
+      // Build very explicit descriptions
+      let person1Desc = '';
+      let person2Desc = '';
       
-      peopleDescription = `Two people standing together: ${person1} and ${person2}, both prominently positioned in the center foreground, standing side by side, both facing the camera directly with warm smiles, both full bodies visible from head to toe, positioned as the main co-stars`;
+      if (g1 === 'male') {
+        person1Desc = 'a handsome man with masculine features, male person';
+      } else if (g1 === 'female') {
+        person1Desc = 'a beautiful woman with feminine features, female person';
+      } else {
+        person1Desc = 'a person';
+      }
+      
+      if (g2 === 'male') {
+        person2Desc = 'a handsome man with masculine features, male person';
+      } else if (g2 === 'female') {
+        person2Desc = 'a beautiful woman with feminine features, female person';
+      } else {
+        person2Desc = 'a person';
+      }
+      
+      peopleDescription = `EXACTLY TWO PEOPLE: ${person1Desc} AND ${person2Desc}, both prominently positioned in the center foreground, standing side by side together, both facing the camera directly with warm smiles, both full bodies visible from head to toe, positioned as the main co-stars. TWO PEOPLE TOTAL.`;
+      
+      // Build negative prompt based on genders
+      if (g1 === 'male' && g2 === 'male') {
+        negativePrompt = 'woman, women, female, females, feminine features, one person, three people, more than two people';
+      } else if (g1 === 'female' && g2 === 'female') {
+        negativePrompt = 'man, men, male, males, masculine features, one person, three people, more than two people';
+      } else {
+        negativePrompt = 'one person, three people, more than two people';
+      }
     }
 
     // Build the improved prompt - very explicit about composition
-    const prompt = `Professional Christmas romantic comedy movie poster. IMPORTANT: Portrait orientation, taller than wide, vertical format.
+    const prompt = `Professional Christmas romantic comedy movie poster. IMPORTANT: Portrait orientation, vertical format.
 
-Main subjects: ${peopleDescription} of the scene.
+Main subjects: ${peopleDescription}
 
 Setting: They are standing in the center-front of a beautifully decorated, warm living room. Behind them is a crackling fireplace with stockings, and a gorgeously decorated Christmas tree with ${treeDecorations}. Warm Christmas lights create a cozy golden glow throughout the room.
 
@@ -57,7 +96,9 @@ Foreground details: An elegantly set dinner table with ${christmasDinner}, and $
 
 Style: Cinematic movie poster composition, professional lighting, warm romantic holiday atmosphere, Hallmark Christmas movie aesthetic, photorealistic, high quality. The people must be facing forward toward the camera, positioned prominently and clearly visible as the stars of this film.
 
-CRITICAL: Portrait orientation (taller than wide), vertical poster format, 9:16 aspect ratio.`;
+CRITICAL: Portrait orientation (taller than wide), vertical poster format, 9:16 aspect ratio.
+
+NEGATIVE PROMPT (avoid these): ${negativePrompt}`;
 
     console.log('Full prompt:', prompt);
 
@@ -69,8 +110,8 @@ CRITICAL: Portrait orientation (taller than wide), vertical poster format, 9:16 
 
     const payload = {
       prompt: prompt,
-      num_inference_steps: 35,
-      guidance_scale: 5.0,
+      num_inference_steps: 40,
+      guidance_scale: 6.0,
       num_images: 1,
       output_format: "png",
       aspect_ratio: "9:16",

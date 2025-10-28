@@ -229,21 +229,32 @@ export default async function handler(req, res) {
 
         if (statusData.status === 'COMPLETED') {
           console.log('Face swap complete! Raw output type:', typeof statusData.output);
-          console.log('Face swap complete! Raw output:', JSON.stringify(statusData.output));
+          console.log('Face swap complete! Raw output:', statusData.output);
           
           // Extract image URL from Segmind's response format
           let imageUrl = null;
+          let outputData = statusData.output;
+          
+          // If output is a JSON string, parse it first
+          if (typeof outputData === 'string') {
+            try {
+              outputData = JSON.parse(outputData);
+              console.log('Parsed output:', outputData);
+            } catch (e) {
+              console.error('Failed to parse output as JSON:', e);
+            }
+          }
           
           // Handle array format: [{"keyname": "...", "value": {"data": "url", "type": "image"}}]
-          if (Array.isArray(statusData.output) && statusData.output.length > 0) {
-            const firstItem = statusData.output[0];
-            console.log('First item:', JSON.stringify(firstItem));
+          if (Array.isArray(outputData) && outputData.length > 0) {
+            const firstItem = outputData[0];
+            console.log('First item:', firstItem);
             if (firstItem.value && firstItem.value.data && typeof firstItem.value.data === 'string') {
               imageUrl = firstItem.value.data;
             }
-          } else if (typeof statusData.output === 'string') {
+          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
             // Direct URL string
-            imageUrl = statusData.output;
+            imageUrl = outputData;
           }
           
           console.log('Face swap complete! Extracted image URL:', imageUrl);

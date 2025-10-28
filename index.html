@@ -707,7 +707,7 @@
 
         async function pollForResult(requestId, photo1, photo2, movieTitle) {
             let attempts = 0;
-            const maxAttempts = 120; // 10 minutes max
+            const maxAttempts = 180; // 15 minutes max (longer for dual face swap)
             let currentStep = 'generation';
             let swapRequestId = null;
 
@@ -769,9 +769,12 @@
                             progressText.textContent = statusData.message;
                         }
                         
-                        // Check if we moved to face swap step
-                        if (statusData.step === 'faceswap' && statusData.swapRequestId) {
-                            currentStep = 'faceswap';
+                        // Check if we moved to face swap steps
+                        if (statusData.step === 'faceswap1' && statusData.swapRequestId) {
+                            currentStep = 'faceswap1';
+                            swapRequestId = statusData.swapRequestId;
+                        } else if (statusData.step === 'faceswap2' && statusData.swapRequestId) {
+                            currentStep = 'faceswap2';
                             swapRequestId = statusData.swapRequestId;
                         }
                         

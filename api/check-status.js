@@ -228,10 +228,22 @@ export default async function handler(req, res) {
         console.log('Face swap status:', statusData.status);
 
         if (statusData.status === 'COMPLETED') {
-          console.log('Face swap complete! Image URL:', statusData.output);
+          console.log('Face swap complete! Raw output:', statusData.output);
+          
+          // Extract image URL from Segmind's response format
+          let imageUrl = statusData.output;
+          
+          // Handle array format: [{"keyname": "...", "value": {"data": "url", "type": "image"}}]
+          if (Array.isArray(imageUrl) && imageUrl.length > 0) {
+            if (imageUrl[0].value && imageUrl[0].value.data) {
+              imageUrl = imageUrl[0].value.data;
+            }
+          }
+          
+          console.log('Face swap complete! Extracted image URL:', imageUrl);
           return res.status(200).json({
             status: 'completed',
-            imageUrl: statusData.output
+            imageUrl: imageUrl
           });
         }
 

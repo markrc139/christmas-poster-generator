@@ -232,10 +232,11 @@ export default async function handler(req, res) {
             }
             const targetImageBuffer = await targetImageResponse.arrayBuffer();
             
-            // Append the image as a file - use buffer directly
+            // Append the image as a file - simplified to match Python: open('demo1.jpg', 'rb')
             const imageBuffer = Buffer.from(targetImageBuffer);
             formData.append('target_image', imageBuffer, 'target.jpg');
             
+            console.log('FormData prepared, buffer size:', imageBuffer.length);
             console.log('Sending face detection request with image file');
             
             const detectResponse = await fetch(

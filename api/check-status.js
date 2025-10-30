@@ -1,3 +1,6 @@
+import FormData from 'form-data';
+import { createFaceZip } from './utils/zip-helper.js';
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -103,108 +106,158 @@ export default async function handler(req, res) {
           });
         }
 
-        // NEW APPROACH: Use a SINGLE face swap call with BOTH faces
-        // Many face swap APIs support multiple source faces
-        console.log('Starting face swap with Segmind');
-        const segmindKey = process.env.SEGMIND_API_KEY;
+        // REMAKER.AI INTEGRATION: Multi-face swap approach
+        console.log('Starting face swap with Remaker.ai');
+        const remakerKey = process.env.REMAKER_API_KEY;
 
-        if (!segmindKey) {
-          console.error('SEGMIND_API_KEY not configured');
+        if (!remakerKey) {
+          console.error('REMAKER_API_KEY not configured');
           return res.status(200).json({
             status: 'completed',
-            imageUrl: generatedImageUrl
+            imageUrl: generatedImageUrl,
+            warning: 'Face swap unavailable - API key not configured'
           });
         }
 
         // Determine swap strategy based on number of photos
         if (photo1 && !photo2) {
-          // Only one photo - simple swap
-          console.log('Single face swap: photo1 only');
+          // Single face swap - use simple endpoint
+          console.log('Single face swap with Remaker');
           
-          const swapPayload = {
-            source_face_image: photo1,
-            target_faces_image: generatedImageUrl
-          };
-
           try {
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
-              method: 'POST',
-              headers: {
-                'x-api-key': segmindKey,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(swapPayload)
+            const formData = new FormData();
+            
+            // Convert base64 to buffer
+            const photo1Buffer = Buffer.from(
+              photo1.replace(/^data:image\/\w+;base64,/, ''),
+              'base64'
+            );
+            const targetBuffer = await fetch(generatedImageUrl)
+              .then(r => r.arrayBuffer())
+              .then(b => Buffer.from(b));
+            
+            formData.append('target_image', targetBuffer, {
+              filename: 'target.jpg',
+              contentType: 'image/jpeg'
             });
+            formData.append('swap_image', photo1Buffer, {
+              filename: 'source.jpg',
+              contentType: 'image/jpeg'
+            });
+            
+            const swapResponse = await fetch(
+              'https://developer.remaker.ai/api/remaker/v1/face-swap/create-job',
+              {
+                method: 'POST',
+                headers: {
+                  'accept': 'application/json',
+                  'Authorization': remakerKey,
+                  ...formData.getHeaders()
+                },
+                body: formData
+              }
+            );
 
             if (!swapResponse.ok) {
               const errorText = await swapResponse.text();
-              console.error('Face swap error:', errorText);
+              console.error('Single face swap error:', errorText);
               return res.status(200).json({
                 status: 'completed',
-                imageUrl: generatedImageUrl
+                imageUrl: generatedImageUrl,
+                warning: 'Face swap failed, returning original'
               });
             }
 
             const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
+            
+            if (swapData.code !== 100000) {
+              console.error('Face swap error:', swapData.message);
+              return res.status(200).json({
+                status: 'completed',
+                imageUrl: generatedImageUrl,
+                warning: 'Face swap failed'
+              });
+            }
+            
+            const swapJobId = swapData.result.job_id;
+            console.log('Single face swap started:', swapJobId);
 
             return res.status(200).json({
               status: 'processing',
               message: 'Adding your face to the poster... 🎭',
-              step: 'faceswap',
-              swapRequestId: swapRequestId
+              step: 'faceswap-single',
+              swapRequestId: swapJobId
             });
+            
           } catch (error) {
-            console.error('Face swap error:', error);
+            console.error('Single face swap error:', error);
             return res.status(200).json({
               status: 'completed',
-              imageUrl: generatedImageUrl
+              imageUrl: generatedImageUrl,
+              warning: 'Face swap failed'
             });
           }
-        } else if (photo1 && photo2) {
-          // Two photos - we need to do sequential swaps with face indexing
-          // Start with swapping the LEFT face (index 0) using photo1
-          console.log('Starting first face swap (left person) with photo1');
           
-          const swapPayload = {
-            source_face_image: photo1,
-            target_faces_image: generatedImageUrl,
-            face_index: 0  // Try to swap only the first/left face
-          };
-
+        } else if (photo1 && photo2) {
+          // MULTI-FACE SWAP: Use Remaker's multi-face detection approach
+          console.log('Starting multi-face swap - Step 1: Face Detection');
+          
           try {
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
-              method: 'POST',
-              headers: {
-                'x-api-key': segmindKey,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(swapPayload)
-            });
+            // Step 1: Detect faces in the generated image
+            const detectResponse = await fetch(
+              'https://developer.remaker.ai/api/remaker/v1/face-detect/create-detect',
+              {
+                method: 'POST',
+                headers: {
+                  'accept': 'application/json',
+                  'Authorization': remakerKey,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  single_face: false,
+                  image_url: generatedImageUrl
+                })
+              }
+            );
 
-            if (!swapResponse.ok) {
-              const errorText = await swapResponse.text();
-              console.error('First face swap error:', errorText);
+            if (!detectResponse.ok) {
+              const errorText = await detectResponse.text();
+              console.error('Face detection initiation failed:', errorText);
               return res.status(200).json({
                 status: 'completed',
-                imageUrl: generatedImageUrl
+                imageUrl: generatedImageUrl,
+                warning: 'Face detection failed'
               });
             }
 
-            const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
+            const detectData = await detectResponse.json();
+            
+            if (detectData.code !== 100000) {
+              console.error('Face detection error:', detectData.message);
+              return res.status(200).json({
+                status: 'completed',
+                imageUrl: generatedImageUrl,
+                warning: 'Face detection failed'
+              });
+            }
+
+            const detectJobId = detectData.result.job_id;
+            console.log('Face detection started:', detectJobId);
 
             return res.status(200).json({
               status: 'processing',
-              message: 'Adding first face (left person)... 🎭',
-              step: 'faceswap1',
-              swapRequestId: swapRequestId
+              message: 'Detecting faces in poster... 🔍',
+              step: 'face-detect',
+              detectJobId: detectJobId,
+              generatedImageUrl: generatedImageUrl // Store for later use
             });
+            
           } catch (error) {
-            console.error('First face swap error:', error);
+            console.error('Face detection error:', error);
             return res.status(200).json({
               status: 'completed',
-              imageUrl: generatedImageUrl
+              imageUrl: generatedImageUrl,
+              warning: 'Face detection failed'
             });
           }
         }
@@ -234,12 +287,12 @@ export default async function handler(req, res) {
         step: 'generation'
       });
 
-    } else if (currentStep === 'faceswap' || currentStep === 'faceswap1') {
-      // Check face swap status
-      console.log('Checking face swap status...');
-      const segmindKey = process.env.SEGMIND_API_KEY;
+    } else if (currentStep === 'faceswap-single') {
+      // Check single face swap status (for 1 photo only)
+      console.log('Checking single face swap status...');
+      const remakerKey = process.env.REMAKER_API_KEY;
       
-      if (!segmindKey) {
+      if (!remakerKey) {
         return res.status(500).json({
           status: 'failed',
           error: 'Configuration error'
@@ -247,139 +300,190 @@ export default async function handler(req, res) {
       }
 
       try {
-        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
-          method: 'GET',
-          headers: {
-            'x-api-key': segmindKey
+        const statusResponse = await fetch(
+          `https://developer.remaker.ai/api/remaker/v1/face-swap/${requestId}`,
+          {
+            method: 'GET',
+            headers: {
+              'accept': 'application/json',
+              'Authorization': remakerKey
+            }
           }
-        });
-
-        if (statusResponse.status === 400 || statusResponse.status === 404) {
-          const errorText = await statusResponse.text();
-          console.error('Face swap status error:', errorText);
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Face swap failed. Please try again.'
-          });
-        }
+        );
 
         if (!statusResponse.ok) {
           return res.status(200).json({
             status: 'processing',
-            message: currentStep === 'faceswap1' ? 'Swapping first face... 🎭' : 'Swapping face... 🎭',
-            step: currentStep
+            message: 'Swapping face... 🎭',
+            step: 'faceswap-single'
           });
         }
 
         const statusData = await statusResponse.json();
+        
+        if (statusData.code === 100000 && statusData.result.output_image_url) {
+          console.log('Single face swap complete!');
+          const finalImageUrl = statusData.result.output_image_url[0];
+          
+          return res.status(200).json({
+            status: 'completed',
+            imageUrl: finalImageUrl
+          });
+        }
 
-        if (statusData.status === 'COMPLETED') {
-          console.log('Face swap complete!');
-          
-          // Extract image URL
-          let imageUrl = null;
-          let outputData = statusData.output;
-          
-          if (typeof outputData === 'string') {
-            try {
-              outputData = JSON.parse(outputData);
-            } catch (e) {
-              console.error('Failed to parse output:', e);
+        // Still processing
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Swapping face... 🎭',
+          step: 'faceswap-single'
+        });
+        
+      } catch (error) {
+        console.error('Single face swap check error:', error);
+        return res.status(200).json({
+          status: 'processing',
+          message: 'Processing...',
+          step: 'faceswap-single'
+        });
+      }
+
+    } else if (currentStep === 'face-detect') {
+      // Check face detection status
+      console.log('Checking face detection status...');
+      const remakerKey = process.env.REMAKER_API_KEY;
+      
+      if (!remakerKey) {
+        return res.status(500).json({
+          status: 'failed',
+          error: 'Configuration error'
+        });
+      }
+
+      try {
+        const statusResponse = await fetch(
+          `https://developer.remaker.ai/api/remaker/v1/face-detect/face-detect/${requestId}`,
+          {
+            method: 'GET',
+            headers: {
+              'accept': 'application/json',
+              'Authorization': remakerKey
             }
           }
+        );
+
+        if (!statusResponse.ok) {
+          return res.status(200).json({
+            status: 'processing',
+            message: 'Detecting faces... 🔍',
+            step: 'face-detect'
+          });
+        }
+
+        const statusData = await statusResponse.json();
+        
+        if (statusData.code === 100000 && statusData.result.output_image_url) {
+          console.log('Faces detected! Count:', statusData.result.output_image_url[0].length);
+          console.log('Face coordinates:', statusData.result.output_image_url[0]);
           
-          if (Array.isArray(outputData) && outputData.length > 0) {
-            const firstItem = outputData[0];
-            if (firstItem.value && firstItem.value.data) {
-              imageUrl = firstItem.value.data;
-            }
-          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
-            imageUrl = outputData;
-          }
+          // Now initiate the multi-face swap
+          console.log('Starting multi-face swap with both photos');
           
-          if (!imageUrl) {
+          // Get the original generated image URL from the request body
+          // (We need to pass it through from the previous step)
+          const targetImageUrl = req.body.generatedImageUrl;
+          
+          if (!targetImageUrl) {
+            console.error('No target image URL provided');
             return res.status(500).json({
               status: 'failed',
-              error: 'Could not extract image from face swap'
+              error: 'Target image URL missing'
             });
           }
-
-          // Check if we need to do a SECOND face swap (for photo2)
-          if (currentStep === 'faceswap1' && photo2) {
-            console.log('Starting second face swap (right person) with photo2');
-            
-            const swapPayload = {
-              source_face_image: photo2,
-              target_faces_image: imageUrl,
-              face_index: 1  // Try to swap only the second/right face
-            };
-
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
+          
+          // Create ZIP file with both photos
+          const faceZipBuffer = await createFaceZip(photo1, photo2);
+          
+          // Fetch the target image
+          const targetImageResponse = await fetch(targetImageUrl);
+          const targetImageBuffer = await targetImageResponse.arrayBuffer();
+          
+          // Create form data
+          const formData = new FormData();
+          formData.append('target_image', Buffer.from(targetImageBuffer), {
+            filename: 'target.jpg',
+            contentType: 'image/jpeg'
+          });
+          formData.append('model_face', faceZipBuffer, {
+            filename: 'faces.zip',
+            contentType: 'application/zip'
+          });
+          
+          // Submit multi-face swap
+          const swapResponse = await fetch(
+            'https://developer.remaker.ai/api/remaker/v1/face-detect/create-swap',
+            {
               method: 'POST',
               headers: {
-                'x-api-key': segmindKey,
-                'Content-Type': 'application/json'
+                'accept': 'application/json',
+                'Authorization': remakerKey,
+                ...formData.getHeaders()
               },
-              body: JSON.stringify(swapPayload)
-            });
-
-            if (!swapResponse.ok) {
-              const errorText = await swapResponse.text();
-              console.error('Second face swap failed to start:', errorText);
-              // Return result from first swap
-              return res.status(200).json({
-                status: 'completed',
-                imageUrl: imageUrl
-              });
+              body: formData
             }
+          );
 
-            const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
-
-            return res.status(200).json({
-              status: 'processing',
-              message: 'Adding second face (right person)... 🎭',
-              step: 'faceswap2',
-              swapRequestId: swapRequestId
+          if (!swapResponse.ok) {
+            const errorText = await swapResponse.text();
+            console.error('Multi-face swap initiation failed:', errorText);
+            return res.status(500).json({
+              status: 'failed',
+              error: 'Face swap initiation failed'
             });
           }
 
-          // Done!
+          const swapData = await swapResponse.json();
+          
+          if (swapData.code !== 100000) {
+            console.error('Multi-face swap error:', swapData.message);
+            return res.status(500).json({
+              status: 'failed',
+              error: 'Face swap failed'
+            });
+          }
+
+          const swapJobId = swapData.result.job_id;
+          console.log('Multi-face swap started:', swapJobId);
+
           return res.status(200).json({
-            status: 'completed',
-            imageUrl: imageUrl
+            status: 'processing',
+            message: 'Swapping both faces... 🎭🎭',
+            step: 'face-swap-multi',
+            swapRequestId: swapJobId
           });
         }
-
-        if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
-          console.error('Face swap failed');
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Face swap failed. Please try again.'
-          });
-        }
-
-        // Still processing
+        
+        // Still detecting
         return res.status(200).json({
           status: 'processing',
-          message: currentStep === 'faceswap1' ? 'Swapping first face... 🎭' : 'Swapping face... 🎭',
-          step: currentStep
+          message: 'Detecting faces... 🔍',
+          step: 'face-detect'
         });
+        
       } catch (error) {
-        console.error('Face swap check error:', error);
+        console.error('Face detection check error:', error);
         return res.status(200).json({
           status: 'processing',
-          message: 'Swapping faces... 🎭',
-          step: currentStep
+          message: 'Processing...',
+          step: 'face-detect'
         });
       }
 
-    } else if (currentStep === 'faceswap2') {
-      // Check SECOND face swap status
-      console.log('Checking second face swap status...');
-      const segmindKey = process.env.SEGMIND_API_KEY;
+    } else if (currentStep === 'face-swap-multi') {
+      // Check multi-face swap status
+      console.log('Checking multi-face swap status...');
+      const remakerKey = process.env.REMAKER_API_KEY;
       
-      if (!segmindKey) {
+      if (!remakerKey) {
         return res.status(500).json({
           status: 'failed',
           error: 'Configuration error'
@@ -387,89 +491,61 @@ export default async function handler(req, res) {
       }
 
       try {
-        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
-          method: 'GET',
-          headers: {
-            'x-api-key': segmindKey
+        const statusResponse = await fetch(
+          `https://developer.remaker.ai/api/remaker/v1/face-detect/face-detect/${requestId}`,
+          {
+            method: 'GET',
+            headers: {
+              'accept': 'application/json',
+              'Authorization': remakerKey
+            }
           }
-        });
-
-        if (statusResponse.status === 400 || statusResponse.status === 404) {
-          const errorText = await statusResponse.text();
-          console.error('Second face swap error:', errorText);
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Second face swap failed.'
-          });
-        }
+        );
 
         if (!statusResponse.ok) {
           return res.status(200).json({
             status: 'processing',
-            message: 'Swapping second face... 🎭',
-            step: 'faceswap2'
+            message: 'Swapping faces... 🎭🎭',
+            step: 'face-swap-multi'
           });
         }
 
         const statusData = await statusResponse.json();
-
-        if (statusData.status === 'COMPLETED') {
-          console.log('Second face swap complete!');
+        
+        if (statusData.code === 100000 && statusData.result.output_image_url) {
+          console.log('Multi-face swap complete!');
+          const finalImageUrl = statusData.result.output_image_url[0];
           
-          // Extract final image URL
-          let imageUrl = null;
-          let outputData = statusData.output;
-          
-          if (typeof outputData === 'string') {
-            try {
-              outputData = JSON.parse(outputData);
-            } catch (e) {
-              console.error('Failed to parse output:', e);
-            }
-          }
-          
-          if (Array.isArray(outputData) && outputData.length > 0) {
-            const firstItem = outputData[0];
-            if (firstItem.value && firstItem.value.data) {
-              imageUrl = firstItem.value.data;
-            }
-          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
-            imageUrl = outputData;
-          }
-          
-          if (!imageUrl) {
-            return res.status(500).json({
-              status: 'failed',
-              error: 'Could not extract image from second face swap'
-            });
-          }
-
           return res.status(200).json({
             status: 'completed',
-            imageUrl: imageUrl
+            imageUrl: finalImageUrl
           });
         }
 
-        if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
-          console.error('Second face swap failed');
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Second face swap failed.'
+        // Check if still in progress
+        if (statusData.code === 300102) {
+          // Still processing
+          const progress = statusData.result.progress || 0;
+          return res.status(200).json({
+            status: 'processing',
+            message: `Swapping faces... ${progress}% 🎭🎭`,
+            step: 'face-swap-multi'
           });
         }
 
-        // Still processing
+        // Still processing (other cases)
         return res.status(200).json({
           status: 'processing',
-          message: 'Swapping second face... 🎭',
-          step: 'faceswap2'
+          message: 'Swapping faces... 🎭🎭',
+          step: 'face-swap-multi'
         });
+        
       } catch (error) {
-        console.error('Second face swap check error:', error);
+        console.error('Multi-face swap check error:', error);
         return res.status(200).json({
           status: 'processing',
-          message: 'Swapping second face... 🎭',
-          step: 'faceswap2'
+          message: 'Processing...',
+          step: 'face-swap-multi'
         });
       }
     }

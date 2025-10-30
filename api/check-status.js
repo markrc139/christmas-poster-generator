@@ -222,7 +222,26 @@ export default async function handler(req, res) {
           
           try {
             // Step 1: Detect faces in the generated image
-            // NOTE: Remaker API uses 'target_image' not 'image_url'
+            // FIX: Send the image as a file in FormData, not as a URL in JSON
+            const formData = new FormData();
+            
+            // Fetch and convert the generated image to a buffer
+            console.log('Fetching generated image for face detection:', generatedImageUrl);
+            const targetImageResponse = await fetch(generatedImageUrl);
+            if (!targetImageResponse.ok) {
+              throw new Error('Failed to fetch generated image');
+            }
+            const targetImageBuffer = await targetImageResponse.arrayBuffer();
+            
+            // Append the image as a file
+            formData.append('target_image', Buffer.from(targetImageBuffer), {
+              filename: 'target.jpg',
+              contentType: 'image/jpeg'
+            });
+            formData.append('single_face', 'false');
+            
+            console.log('Sending face detection request with image file');
+            
             const detectResponse = await fetch(
               'https://developer.remaker.ai/api/remaker/v1/face-detect/create-detect',
               {
@@ -230,22 +249,21 @@ export default async function handler(req, res) {
                 headers: {
                   'accept': 'application/json',
                   'Authorization': remakerKey,
-                  'Content-Type': 'application/json'
+                  ...formData.getHeaders()
                 },
-                body: JSON.stringify({
-                  single_face: false,
-                  target_image: generatedImageUrl  // Changed from image_url
-                })
+                body: formData
               }
             );
 
             if (!detectResponse.ok) {
               const errorText = await detectResponse.text();
               console.error('Face detection initiation failed:', errorText);
+              
+              // Fallback: return original image
               return res.status(200).json({
                 status: 'completed',
                 imageUrl: generatedImageUrl,
-                warning: 'Face detection failed'
+                warning: 'Face detection failed, returning original'
               });
             }
 
@@ -265,14 +283,14 @@ export default async function handler(req, res) {
 
             return res.status(200).json({
               status: 'processing',
-              message: 'Detecting faces in poster... 🔍',
+              message: 'Detecting faces in the poster... 🔍',
               step: 'face-detect',
               detectJobId: detectJobId,
-              generatedImageUrl: generatedImageUrl // Store for later use
+              generatedImageUrl: generatedImageUrl // Pass through for next step
             });
             
           } catch (error) {
-            console.error('Face detection error:', error);
+            console.error('Multi-face detection error:', error);
             return res.status(200).json({
               status: 'completed',
               imageUrl: generatedImageUrl,
@@ -282,32 +300,15 @@ export default async function handler(req, res) {
         }
       }
 
-      // Check for explicit status indicators
-      const status = result.status || result.state;
-      if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING' || status === 'PROCESSING') {
-        return res.status(200).json({
-          status: 'processing',
-          message: 'Creating your poster... 🎨',
-          step: 'generation'
-        });
-      }
-
-      if (status === 'FAILED' || status === 'ERROR') {
-        console.error('Generation failed with status:', status);
-        return res.status(500).json({
-          status: 'failed',
-          error: 'Poster generation failed. Please try again.'
-        });
-      }
-
+      // Still generating
       return res.status(200).json({
         status: 'processing',
-        message: 'Processing...',
+        message: 'Creating your Christmas poster... 🎨',
         step: 'generation'
       });
 
     } else if (currentStep === 'faceswap-single') {
-      // Check single face swap status (for 1 photo only)
+      // Check single face swap status
       console.log('Checking single face swap status...');
       const remakerKey = process.env.REMAKER_API_KEY;
       
@@ -320,7 +321,7 @@ export default async function handler(req, res) {
 
       try {
         const statusResponse = await fetch(
-          `https://developer.remaker.ai/api/remaker/v1/face-swap/${requestId}`,
+          `https://developer.remaker.ai/api/remaker/v1/face-swap/face-swap/${requestId}`,
           {
             method: 'GET',
             headers: {

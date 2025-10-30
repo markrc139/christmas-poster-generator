@@ -222,7 +222,6 @@ export default async function handler(req, res) {
           
           try {
             // Step 1: Detect faces in the generated image
-            // FIX: Send the image as a file in FormData, not as a URL in JSON
             const formData = new FormData();
             
             // Fetch and convert the generated image to a buffer
@@ -233,11 +232,9 @@ export default async function handler(req, res) {
             }
             const targetImageBuffer = await targetImageResponse.arrayBuffer();
             
-            // Append the image as a file
-            formData.append('target_image', Buffer.from(targetImageBuffer), {
-              filename: 'target.jpg',
-              contentType: 'image/jpeg'
-            });
+            // Append the image as a file - use buffer directly
+            const imageBuffer = Buffer.from(targetImageBuffer);
+            formData.append('target_image', imageBuffer, 'target.jpg');
             
             console.log('Sending face detection request with image file');
             

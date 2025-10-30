@@ -63,6 +63,8 @@ export default async function handler(req, res) {
       if (!resultResponse.ok) {
         const errorText = await resultResponse.text();
         
+        console.log('FLUX Pro non-OK response:', resultResponse.status, errorText);
+        
         if (errorText.includes('still in progress') || errorText.includes('IN_PROGRESS')) {
           console.log('Still in progress');
           return res.status(200).json({
@@ -72,7 +74,17 @@ export default async function handler(req, res) {
           });
         }
         
-        console.error('FLUX Pro check error:', errorText);
+        // Log the full error for debugging
+        console.error('FLUX Pro check error - Status:', resultResponse.status, 'Body:', errorText);
+        
+        // Try to parse as JSON to see if there's more info
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('FLUX Pro error details:', JSON.stringify(errorJson, null, 2));
+        } catch (e) {
+          // Not JSON, already logged as text
+        }
+        
         return res.status(200).json({
           status: 'processing',
           message: 'Processing your request...',
@@ -82,6 +94,12 @@ export default async function handler(req, res) {
 
       const result = await resultResponse.json();
       console.log('FLUX Pro result received');
+      console.log('Result structure:', Object.keys(result));
+      
+      // Log what fields are present to help debug
+      if (result.images) console.log('result.images found, count:', result.images.length);
+      if (result.data) console.log('result.data found');
+      if (result.output) console.log('result.output found');
 
       // Check for completed generation
       let generatedImageUrl = null;
@@ -204,6 +222,7 @@ export default async function handler(req, res) {
           
           try {
             // Step 1: Detect faces in the generated image
+            // NOTE: Remaker API uses 'target_image' not 'image_url'
             const detectResponse = await fetch(
               'https://developer.remaker.ai/api/remaker/v1/face-detect/create-detect',
               {
@@ -215,7 +234,7 @@ export default async function handler(req, res) {
                 },
                 body: JSON.stringify({
                   single_face: false,
-                  image_url: generatedImageUrl
+                  target_image: generatedImageUrl  // Changed from image_url
                 })
               }
             );

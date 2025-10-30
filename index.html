@@ -710,6 +710,8 @@
             const maxAttempts = 180; // 15 minutes max (longer for dual face swap)
             let currentStep = 'generation';
             let swapRequestId = null;
+            let detectJobId = null;
+            let generatedImageUrl = null; // Store the generated image URL
 
             const poll = async () => {
                 attempts++;
@@ -725,10 +727,11 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            requestId: swapRequestId || requestId,
+                            requestId: swapRequestId || detectJobId || requestId,
                             photo1,
                             photo2,
-                            step: currentStep
+                            step: currentStep,
+                            generatedImageUrl: generatedImageUrl // Pass through for multi-face swap
                         })
                     });
 
@@ -769,12 +772,21 @@
                             progressText.textContent = statusData.message;
                         }
                         
-                        // Check if we moved to face swap steps
-                        if (statusData.step === 'faceswap1' && statusData.swapRequestId) {
-                            currentStep = 'faceswap1';
+                        // Handle new Remaker.ai step transitions
+                        if (statusData.step === 'faceswap-single' && statusData.swapRequestId) {
+                            // Single face swap (1 photo)
+                            currentStep = 'faceswap-single';
                             swapRequestId = statusData.swapRequestId;
-                        } else if (statusData.step === 'faceswap2' && statusData.swapRequestId) {
-                            currentStep = 'faceswap2';
+                        } else if (statusData.step === 'face-detect' && statusData.detectJobId) {
+                            // Multi-face: face detection step
+                            currentStep = 'face-detect';
+                            detectJobId = statusData.detectJobId;
+                            if (statusData.generatedImageUrl) {
+                                generatedImageUrl = statusData.generatedImageUrl;
+                            }
+                        } else if (statusData.step === 'face-swap-multi' && statusData.swapRequestId) {
+                            // Multi-face: swap step
+                            currentStep = 'face-swap-multi';
                             swapRequestId = statusData.swapRequestId;
                         }
                         

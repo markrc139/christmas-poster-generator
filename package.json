@@ -2,7 +2,7 @@
   "name": "christmas-poster-generator",
   "version": "1.0.0",
   "type": "module",
-  "description": "AI-powered Christmas movie poster generator with FLUX Pro and Segmind face swap",
+  "description": "AI-powered Christmas movie poster generator with FLUX Pro and Remaker multi-face swap",
   "main": "index.html",
   "scripts": {
     "dev": "vercel dev",
@@ -13,11 +13,16 @@
     "ai",
     "poster",
     "flux",
-    "segmind",
-    "face-swap"
+    "remaker",
+    "face-swap",
+    "multi-face"
   ],
   "author": "",
   "license": "MIT",
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "form-data": "^4.0.0"
+  },
   "devDependencies": {
     "vercel": "^33.0.0"
   }

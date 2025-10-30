@@ -38,9 +38,7 @@ export default async function handler(req, res) {
 
       console.log('FLUX Pro status response:', resultResponse.status);
 
-      // Handle different response codes
-      if (resultResponse.status === 404) {
-        console.log('404 - Request still queued');
+      if (resultResponse.status === 404 || resultResponse.status === 405) {
         return res.status(200).json({
           status: 'processing',
           message: 'Generating your Christmas scene... 🎄',
@@ -48,28 +46,15 @@ export default async function handler(req, res) {
         });
       }
 
-      if (resultResponse.status === 405) {
-        console.log('405 - Request still processing');
-        return res.status(200).json({
-          status: 'processing',
-          message: 'Creating your poster... ✨',
-          step: 'generation'
-        });
-      }
-
       if (!resultResponse.ok) {
         const errorText = await resultResponse.text();
-        
         if (errorText.includes('still in progress') || errorText.includes('IN_PROGRESS')) {
-          console.log('Still in progress');
           return res.status(200).json({
             status: 'processing',
             message: 'Generating scene... 🎬',
             step: 'generation'
           });
         }
-        
-        console.error('FLUX Pro check error:', errorText);
         return res.status(200).json({
           status: 'processing',
           message: 'Processing your request...',
@@ -80,9 +65,8 @@ export default async function handler(req, res) {
       const result = await resultResponse.json();
       console.log('FLUX Pro result received');
 
-      // Check for completed generation
+      // Extract generated image URL
       let generatedImageUrl = null;
-
       if (result.images && result.images.length > 0) {
         generatedImageUrl = result.images[0].url;
       } else if (result.data && result.data.images && result.data.images.length > 0) {
@@ -94,51 +78,55 @@ export default async function handler(req, res) {
       if (generatedImageUrl) {
         console.log('Scene generated successfully');
 
-        // If no photos to swap, return the generated image immediately
+        // If no photos to swap, return immediately
         if (!photo1 && !photo2) {
-          console.log('No face swap needed, returning generated image');
+          console.log('No face swap needed');
           return res.status(200).json({
             status: 'completed',
             imageUrl: generatedImageUrl
           });
         }
 
-        // NEW APPROACH: Use a SINGLE face swap call with BOTH faces
-        // Many face swap APIs support multiple source faces
-        console.log('Starting face swap with Segmind');
-        const segmindKey = process.env.SEGMIND_API_KEY;
+        // Start Replicate face swap
+        console.log('Starting Replicate face swap');
+        const replicateToken = process.env.REPLICATE_API_TOKEN;
 
-        if (!segmindKey) {
-          console.error('SEGMIND_API_KEY not configured');
+        if (!replicateToken) {
+          console.error('REPLICATE_API_TOKEN not configured');
           return res.status(200).json({
             status: 'completed',
             imageUrl: generatedImageUrl
           });
         }
 
-        // Determine swap strategy based on number of photos
+        // Strategy for Replicate:
+        // Use yan-ops/face_swap model which is designed for this
+        // Do TWO sequential swaps if needed
+
         if (photo1 && !photo2) {
-          // Only one photo - simple swap
-          console.log('Single face swap: photo1 only');
+          // Single face swap
+          console.log('Starting single Replicate face swap with photo1');
           
-          const swapPayload = {
-            source_face_image: photo1,
-            target_faces_image: generatedImageUrl
-          };
-
           try {
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
+            const swapResponse = await fetch('https://api.replicate.com/v1/predictions', {
               method: 'POST',
               headers: {
-                'x-api-key': segmindKey,
+                'Authorization': `Token ${replicateToken}`,
                 'Content-Type': 'application/json'
               },
-              body: JSON.stringify(swapPayload)
+              body: JSON.stringify({
+                version: "c2d783366e8d32e6e82c40682fab6b4c23b9c6eff2692eb2cf4f9d894415d89c",
+                input: {
+                  source_image: photo1,
+                  target_image: generatedImageUrl,
+                  cache_days: 1
+                }
+              })
             });
 
             if (!swapResponse.ok) {
               const errorText = await swapResponse.text();
-              console.error('Face swap error:', errorText);
+              console.error('Replicate error:', errorText);
               return res.status(200).json({
                 status: 'completed',
                 imageUrl: generatedImageUrl
@@ -146,45 +134,46 @@ export default async function handler(req, res) {
             }
 
             const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
+            console.log('Replicate face swap started:', swapData.id);
 
             return res.status(200).json({
               status: 'processing',
               message: 'Adding your face to the poster... 🎭',
               step: 'faceswap',
-              swapRequestId: swapRequestId
+              swapRequestId: swapData.id
             });
           } catch (error) {
-            console.error('Face swap error:', error);
+            console.error('Replicate error:', error);
             return res.status(200).json({
               status: 'completed',
               imageUrl: generatedImageUrl
             });
           }
         } else if (photo1 && photo2) {
-          // Two photos - we need to do sequential swaps with face indexing
-          // Start with swapping the LEFT face (index 0) using photo1
-          console.log('Starting first face swap (left person) with photo1');
+          // Two faces - start with first one
+          console.log('Starting first Replicate face swap with photo1');
           
-          const swapPayload = {
-            source_face_image: photo1,
-            target_faces_image: generatedImageUrl,
-            face_index: 0  // Try to swap only the first/left face
-          };
-
           try {
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
+            const swapResponse = await fetch('https://api.replicate.com/v1/predictions', {
               method: 'POST',
               headers: {
-                'x-api-key': segmindKey,
+                'Authorization': `Token ${replicateToken}`,
                 'Content-Type': 'application/json'
               },
-              body: JSON.stringify(swapPayload)
+              body: JSON.stringify({
+                version: "c2d783366e8d32e6e82c40682fab6b4c23b9c6eff2692eb2cf4f9d894415d89c",
+                input: {
+                  source_image: photo1,
+                  target_image: generatedImageUrl,
+                  cache_days: 1,
+                  face_index: 0  // Try to target first face
+                }
+              })
             });
 
             if (!swapResponse.ok) {
               const errorText = await swapResponse.text();
-              console.error('First face swap error:', errorText);
+              console.error('Replicate first swap error:', errorText);
               return res.status(200).json({
                 status: 'completed',
                 imageUrl: generatedImageUrl
@@ -192,16 +181,16 @@ export default async function handler(req, res) {
             }
 
             const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
+            console.log('Replicate first face swap started:', swapData.id);
 
             return res.status(200).json({
               status: 'processing',
-              message: 'Adding first face (left person)... 🎭',
+              message: 'Adding first face to the poster... 🎭',
               step: 'faceswap1',
-              swapRequestId: swapRequestId
+              swapRequestId: swapData.id
             });
           } catch (error) {
-            console.error('First face swap error:', error);
+            console.error('Replicate first swap error:', error);
             return res.status(200).json({
               status: 'completed',
               imageUrl: generatedImageUrl
@@ -210,7 +199,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // Check for explicit status indicators
+      // Check for status indicators
       const status = result.status || result.state;
       if (status === 'IN_PROGRESS' || status === 'IN_QUEUE' || status === 'PENDING' || status === 'PROCESSING') {
         return res.status(200).json({
@@ -221,10 +210,9 @@ export default async function handler(req, res) {
       }
 
       if (status === 'FAILED' || status === 'ERROR') {
-        console.error('Generation failed with status:', status);
         return res.status(500).json({
           status: 'failed',
-          error: 'Poster generation failed. Please try again.'
+          error: 'Poster generation failed.'
         });
       }
 
@@ -235,11 +223,11 @@ export default async function handler(req, res) {
       });
 
     } else if (currentStep === 'faceswap' || currentStep === 'faceswap1') {
-      // Check face swap status
-      console.log('Checking face swap status...');
-      const segmindKey = process.env.SEGMIND_API_KEY;
+      // Check Replicate face swap status
+      console.log('Checking Replicate face swap status...');
+      const replicateToken = process.env.REPLICATE_API_TOKEN;
       
-      if (!segmindKey) {
+      if (!replicateToken) {
         return res.status(500).json({
           status: 'failed',
           error: 'Configuration error'
@@ -247,23 +235,16 @@ export default async function handler(req, res) {
       }
 
       try {
-        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
+        const statusResponse = await fetch(`https://api.replicate.com/v1/predictions/${requestId}`, {
           method: 'GET',
           headers: {
-            'x-api-key': segmindKey
+            'Authorization': `Token ${replicateToken}`
           }
         });
 
-        if (statusResponse.status === 400 || statusResponse.status === 404) {
-          const errorText = await statusResponse.text();
-          console.error('Face swap status error:', errorText);
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Face swap failed. Please try again.'
-          });
-        }
-
         if (!statusResponse.ok) {
+          const errorText = await statusResponse.text();
+          console.error('Replicate status error:', errorText);
           return res.status(200).json({
             status: 'processing',
             message: currentStep === 'faceswap1' ? 'Swapping first face... 🎭' : 'Swapping face... 🎭',
@@ -272,76 +253,72 @@ export default async function handler(req, res) {
         }
 
         const statusData = await statusResponse.json();
+        console.log('Replicate status:', statusData.status);
 
-        if (statusData.status === 'COMPLETED') {
-          console.log('Face swap complete!');
+        if (statusData.status === 'succeeded') {
+          console.log('Face swap succeeded!');
           
-          // Extract image URL
-          let imageUrl = null;
-          let outputData = statusData.output;
-          
-          if (typeof outputData === 'string') {
-            try {
-              outputData = JSON.parse(outputData);
-            } catch (e) {
-              console.error('Failed to parse output:', e);
-            }
-          }
-          
-          if (Array.isArray(outputData) && outputData.length > 0) {
-            const firstItem = outputData[0];
-            if (firstItem.value && firstItem.value.data) {
-              imageUrl = firstItem.value.data;
-            }
-          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
-            imageUrl = outputData;
-          }
+          // Replicate returns the image URL directly in output
+          const imageUrl = statusData.output;
           
           if (!imageUrl) {
+            console.error('No output from Replicate');
             return res.status(500).json({
               status: 'failed',
-              error: 'Could not extract image from face swap'
+              error: 'No output from face swap'
             });
           }
 
-          // Check if we need to do a SECOND face swap (for photo2)
+          console.log('Face swap result URL:', imageUrl);
+
+          // Check if we need second face swap
           if (currentStep === 'faceswap1' && photo2) {
-            console.log('Starting second face swap (right person) with photo2');
+            console.log('Starting second Replicate face swap with photo2');
             
-            const swapPayload = {
-              source_face_image: photo2,
-              target_faces_image: imageUrl,
-              face_index: 1  // Try to swap only the second/right face
-            };
+            try {
+              const swapResponse = await fetch('https://api.replicate.com/v1/predictions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Token ${replicateToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  version: "c2d783366e8d32e6e82c40682fab6b4c23b9c6eff2692eb2cf4f9d894415d89c",
+                  input: {
+                    source_image: photo2,
+                    target_image: imageUrl,
+                    cache_days: 1,
+                    face_index: 1  // Try to target second face
+                  }
+                })
+              });
 
-            const swapResponse = await fetch('https://api.segmind.com/workflows/6759c2ad2de40ed56063a1f8-v1', {
-              method: 'POST',
-              headers: {
-                'x-api-key': segmindKey,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(swapPayload)
-            });
+              if (!swapResponse.ok) {
+                const errorText = await swapResponse.text();
+                console.error('Second Replicate swap failed to start:', errorText);
+                // Return first swap result
+                return res.status(200).json({
+                  status: 'completed',
+                  imageUrl: imageUrl
+                });
+              }
 
-            if (!swapResponse.ok) {
-              const errorText = await swapResponse.text();
-              console.error('Second face swap failed to start:', errorText);
-              // Return result from first swap
+              const swapData = await swapResponse.json();
+              console.log('Replicate second face swap started:', swapData.id);
+
+              return res.status(200).json({
+                status: 'processing',
+                message: 'Adding second face to the poster... 🎭',
+                step: 'faceswap2',
+                swapRequestId: swapData.id
+              });
+            } catch (error) {
+              console.error('Second Replicate swap error:', error);
               return res.status(200).json({
                 status: 'completed',
                 imageUrl: imageUrl
               });
             }
-
-            const swapData = await swapResponse.json();
-            const swapRequestId = swapData.request_id || swapData.id;
-
-            return res.status(200).json({
-              status: 'processing',
-              message: 'Adding second face (right person)... 🎭',
-              step: 'faceswap2',
-              swapRequestId: swapRequestId
-            });
           }
 
           // Done!
@@ -351,22 +328,22 @@ export default async function handler(req, res) {
           });
         }
 
-        if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
-          console.error('Face swap failed');
+        if (statusData.status === 'failed' || statusData.status === 'canceled') {
+          console.error('Replicate face swap failed:', statusData.error);
           return res.status(500).json({
             status: 'failed',
-            error: 'Face swap failed. Please try again.'
+            error: 'Face swap failed'
           });
         }
 
-        // Still processing
+        // Still processing (starting, processing)
         return res.status(200).json({
           status: 'processing',
           message: currentStep === 'faceswap1' ? 'Swapping first face... 🎭' : 'Swapping face... 🎭',
           step: currentStep
         });
       } catch (error) {
-        console.error('Face swap check error:', error);
+        console.error('Replicate check error:', error);
         return res.status(200).json({
           status: 'processing',
           message: 'Swapping faces... 🎭',
@@ -375,11 +352,11 @@ export default async function handler(req, res) {
       }
 
     } else if (currentStep === 'faceswap2') {
-      // Check SECOND face swap status
-      console.log('Checking second face swap status...');
-      const segmindKey = process.env.SEGMIND_API_KEY;
+      // Check second Replicate face swap status
+      console.log('Checking second Replicate face swap status...');
+      const replicateToken = process.env.REPLICATE_API_TOKEN;
       
-      if (!segmindKey) {
+      if (!replicateToken) {
         return res.status(500).json({
           status: 'failed',
           error: 'Configuration error'
@@ -387,21 +364,12 @@ export default async function handler(req, res) {
       }
 
       try {
-        const statusResponse = await fetch(`https://api.segmind.com/workflows/request/${requestId}`, {
+        const statusResponse = await fetch(`https://api.replicate.com/v1/predictions/${requestId}`, {
           method: 'GET',
           headers: {
-            'x-api-key': segmindKey
+            'Authorization': `Token ${replicateToken}`
           }
         });
-
-        if (statusResponse.status === 400 || statusResponse.status === 404) {
-          const errorText = await statusResponse.text();
-          console.error('Second face swap error:', errorText);
-          return res.status(500).json({
-            status: 'failed',
-            error: 'Second face swap failed.'
-          });
-        }
 
         if (!statusResponse.ok) {
           return res.status(200).json({
@@ -413,34 +381,15 @@ export default async function handler(req, res) {
 
         const statusData = await statusResponse.json();
 
-        if (statusData.status === 'COMPLETED') {
-          console.log('Second face swap complete!');
+        if (statusData.status === 'succeeded') {
+          console.log('Second face swap succeeded!');
           
-          // Extract final image URL
-          let imageUrl = null;
-          let outputData = statusData.output;
-          
-          if (typeof outputData === 'string') {
-            try {
-              outputData = JSON.parse(outputData);
-            } catch (e) {
-              console.error('Failed to parse output:', e);
-            }
-          }
-          
-          if (Array.isArray(outputData) && outputData.length > 0) {
-            const firstItem = outputData[0];
-            if (firstItem.value && firstItem.value.data) {
-              imageUrl = firstItem.value.data;
-            }
-          } else if (typeof outputData === 'string' && outputData.startsWith('http')) {
-            imageUrl = outputData;
-          }
+          const imageUrl = statusData.output;
           
           if (!imageUrl) {
             return res.status(500).json({
               status: 'failed',
-              error: 'Could not extract image from second face swap'
+              error: 'No output from second face swap'
             });
           }
 
@@ -450,11 +399,11 @@ export default async function handler(req, res) {
           });
         }
 
-        if (statusData.status === 'FAILED' || statusData.status === 'ERROR') {
-          console.error('Second face swap failed');
+        if (statusData.status === 'failed' || statusData.status === 'canceled') {
+          console.error('Second Replicate face swap failed');
           return res.status(500).json({
             status: 'failed',
-            error: 'Second face swap failed.'
+            error: 'Second face swap failed'
           });
         }
 
@@ -465,7 +414,7 @@ export default async function handler(req, res) {
           step: 'faceswap2'
         });
       } catch (error) {
-        console.error('Second face swap check error:', error);
+        console.error('Second Replicate check error:', error);
         return res.status(200).json({
           status: 'processing',
           message: 'Swapping second face... 🎭',
@@ -474,7 +423,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Invalid step
     return res.status(400).json({
       error: 'Invalid step parameter'
     });

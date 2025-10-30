@@ -238,7 +238,6 @@ export default async function handler(req, res) {
               filename: 'target.jpg',
               contentType: 'image/jpeg'
             });
-            formData.append('single_face', 'false');
             
             console.log('Sending face detection request with image file');
             
